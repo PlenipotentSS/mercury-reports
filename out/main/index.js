@@ -36,8 +36,7 @@ electron.app.whenReady().then(() => {
   electron.ipcMain.on("ping", () => console.log("pong"));
   createWindow();
   electron.app.on("activate", function() {
-    if (electron.BrowserWindow.getAllWindows().length === 0)
-      createWindow();
+    if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 electron.app.on("window-all-closed", () => {
