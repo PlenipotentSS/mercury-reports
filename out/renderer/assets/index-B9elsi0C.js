@@ -12449,46 +12449,569 @@ function requireClient() {
   return client.exports;
 }
 var clientExports = requireClient();
-function Versions() {
-  const [versions] = reactExports.useState(window.electron.process.versions);
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("ul", { className: "versions", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("li", { className: "electron-version", children: [
-      "Electron v",
-      versions.electron
+const AuthContext = reactExports.createContext(void 0);
+function AuthProvider({ children }) {
+  const [user, setUser] = reactExports.useState(null);
+  const [isLoading, setIsLoading] = reactExports.useState(true);
+  reactExports.useEffect(() => {
+    const storedUser = localStorage.getItem("user");
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+    setIsLoading(false);
+  }, []);
+  const login = async (email) => {
+    try {
+      const result = await window.api.userLogin(email);
+      if (result.success && result.user) {
+        setUser(result.user);
+        localStorage.setItem("user", JSON.stringify(result.user));
+        return { success: true };
+      }
+      return { success: false, error: result.error || "Login failed" };
+    } catch (error) {
+      return { success: false, error: "An error occurred during login" };
+    }
+  };
+  const signup = async (name, email) => {
+    try {
+      const result = await window.api.userSignup(name, email);
+      if (result.success && result.user) {
+        setUser(result.user);
+        localStorage.setItem("user", JSON.stringify(result.user));
+        return { success: true };
+      }
+      return { success: false, error: result.error || "Signup failed" };
+    } catch (error) {
+      return { success: false, error: "An error occurred during signup" };
+    }
+  };
+  const logout = () => {
+    setUser(null);
+    localStorage.removeItem("user");
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(AuthContext.Provider, { value: { user, login, signup, logout, isLoading }, children });
+}
+function useAuth() {
+  const context = reactExports.useContext(AuthContext);
+  if (context === void 0) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
+}
+function Auth() {
+  const [isLogin, setIsLogin] = reactExports.useState(true);
+  const [name, setName] = reactExports.useState("");
+  const [email, setEmail] = reactExports.useState("");
+  const [error, setError] = reactExports.useState("");
+  const [isSubmitting, setIsSubmitting] = reactExports.useState(false);
+  const { login, signup } = useAuth();
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setIsSubmitting(true);
+    try {
+      let result;
+      if (isLogin) {
+        result = await login(email);
+      } else {
+        if (!name.trim()) {
+          setError("Name is required");
+          setIsSubmitting(false);
+          return;
+        }
+        result = await signup(name, email);
+      }
+      if (!result.success) {
+        setError(result.error || "An error occurred");
+      }
+    } catch (err) {
+      setError("An unexpected error occurred");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  const toggleMode = () => {
+    setIsLogin(!isLogin);
+    setError("");
+    setName("");
+    setEmail("");
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "auth-container", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "auth-card", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { className: "auth-title", children: "Mercury Reports" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "auth-subtitle", children: isLogin ? "Sign In" : "Create Account" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { onSubmit: handleSubmit, className: "auth-form", children: [
+      !isLogin && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "name", children: "Name" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            type: "text",
+            id: "name",
+            value: name,
+            onChange: (e) => setName(e.target.value),
+            placeholder: "Enter your name",
+            required: !isLogin,
+            disabled: isSubmitting
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "email", children: "Email" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            type: "email",
+            id: "email",
+            value: email,
+            onChange: (e) => setEmail(e.target.value),
+            placeholder: "Enter your email",
+            required: true,
+            disabled: isSubmitting
+          }
+        )
+      ] }),
+      error && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "error-message", children: error }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", className: "submit-button", disabled: isSubmitting, children: isSubmitting ? "Please wait..." : isLogin ? "Sign In" : "Sign Up" })
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("li", { className: "chrome-version", children: [
-      "Chromium v",
-      versions.chrome
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "auth-toggle", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: toggleMode, className: "toggle-button", disabled: isSubmitting, children: isLogin ? "Don't have an account? Sign Up" : "Already have an account? Sign In" }) })
+  ] }) });
+}
+function Layout({ children }) {
+  const { user, logout } = useAuth();
+  const [currentPage, setCurrentPage] = reactExports.useState("home");
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "layout", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "header", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "header-left", children: /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { className: "app-title", children: "Mercury Reports" }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("nav", { className: "nav", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `nav-button ${currentPage === "home" ? "active" : ""}`,
+            onClick: () => setCurrentPage("home"),
+            children: "Home"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `nav-button ${currentPage === "reports" ? "active" : ""}`,
+            onClick: () => setCurrentPage("reports"),
+            children: "Reports"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `nav-button ${currentPage === "settings" ? "active" : ""}`,
+            onClick: () => setCurrentPage("settings"),
+            children: "Settings"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "header-right", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "user-name", children: user?.name }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "logout-button", onClick: logout, children: "Logout" })
+      ] })
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("li", { className: "node-version", children: [
-      "Node v",
-      versions.node
+    /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: "main-content", children: children(currentPage) })
+  ] });
+}
+function Home() {
+  const { user } = useAuth();
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("h2", { className: "page-title", children: [
+      "Welcome, ",
+      user?.name,
+      "!"
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-content", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "This is your Mercury Reports dashboard." }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "Use the navigation above to access different sections:" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("ul", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("li", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Reports:" }),
+          " View and manage your Mercury transaction reports"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("li", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Settings:" }),
+          " Configure your Mercury API key and preferences"
+        ] })
+      ] })
     ] })
   ] });
 }
-const electronLogo = "" + new URL("electron-DtwWEc_u.svg", import.meta.url).href;
-function App() {
-  const ipcHandle = () => window.electron.ipcRenderer.send("ping");
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("img", { alt: "logo", className: "logo", src: electronLogo }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "creator", children: "Powered by electron-vite" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text", children: [
-      "Build an Electron app with ",
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "react", children: "React" }),
-      " and ",
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "ts", children: "TypeScript" })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "tip", children: [
-      "Please try pressing ",
-      /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: "F12" }),
-      " to open the devTool"
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "actions", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "action", children: /* @__PURE__ */ jsxRuntimeExports.jsx("a", { href: "https://electron-vite.org/", target: "_blank", rel: "noreferrer", children: "Documentation" }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "action", children: /* @__PURE__ */ jsxRuntimeExports.jsx("a", { target: "_blank", rel: "noreferrer", onClick: ipcHandle, children: "Send IPC" }) })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Versions, {})
+function Reports() {
+  const { user } = useAuth();
+  const [hasApiKey, setHasApiKey] = reactExports.useState(null);
+  const [transactions, setTransactions] = reactExports.useState([]);
+  const [isLoading, setIsLoading] = reactExports.useState(true);
+  const [error, setError] = reactExports.useState(null);
+  const [selectedTransaction, setSelectedTransaction] = reactExports.useState(null);
+  reactExports.useEffect(() => {
+    checkApiKeyAndFetchTransactions();
+  }, [user]);
+  const checkApiKeyAndFetchTransactions = async () => {
+    if (!user) return;
+    try {
+      setIsLoading(true);
+      setError(null);
+      const apiKeyResult = await window.api.apiKeyGetActive(user.id);
+      if (!apiKeyResult.success || !apiKeyResult.apiKey) {
+        setHasApiKey(false);
+        setIsLoading(false);
+        return;
+      }
+      setHasApiKey(true);
+      const response = await fetch("https://api.mercury.com/api/v1/transactions", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${apiKeyResult.apiKey.api_key}`,
+          "Content-Type": "application/json"
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch transactions: ${response.statusText}`);
+      }
+      const data = await response.json();
+      setTransactions(data.transactions || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load transactions");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  const truncateId = (id) => {
+    return `${id.slice(0, 8)}...${id.slice(-4)}`;
+  };
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  };
+  const formatAmount = (amount) => {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD"
+    }).format(amount);
+  };
+  if (isLoading) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "page-title", children: "Reports" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "page-content", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "loading-container-inline", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "loading-spinner-small" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "Loading transactions..." })
+      ] }) })
+    ] });
+  }
+  if (hasApiKey === false) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "page-title", children: "Reports" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "page-content", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "no-api-key-message", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "No API Key Found" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "No reports can be provided until the Mercury API key is added. Please go to the Settings page to add your API key." }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("a", { href: "#", onClick: () => window.location.reload(), className: "settings-link", children: "Go to Settings" })
+      ] }) })
+    ] });
+  }
+  if (error) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "page-title", children: "Reports" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "page-content", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "error-box", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "Error Loading Transactions" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: error }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: checkApiKeyAndFetchTransactions, className: "retry-button", children: "Retry" })
+      ] }) })
+    ] });
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "page-title", children: "Mercury Transactions" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-content", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "transactions-header", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
+          "Total Transactions: ",
+          transactions.length
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: checkApiKeyAndFetchTransactions, className: "refresh-button", children: "Refresh" })
+      ] }),
+      transactions.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "placeholder-text", children: "No transactions found." }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "transactions-table-container", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "transactions-table", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "ID" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Amount" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Created" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Status" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Bank Description" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Credit Card" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Kind" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Category" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "GL Code" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Card Name" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Attachments" })
+        ] }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: transactions.map((transaction) => /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "truncated-id", title: transaction.id, children: truncateId(transaction.id) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "td",
+            {
+              className: `amount ${transaction.amount < 0 ? "negative" : "positive"}`,
+              children: formatAmount(transaction.amount)
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: formatDate(transaction.createdAt) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `status-badge status-${transaction.status}`, children: transaction.status }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: transaction.bankDescription }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: transaction.details?.creditCardInfo ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              className: "info-button",
+              onClick: () => setSelectedTransaction(transaction),
+              title: "Click for details",
+              children: transaction.details.creditCardInfo.email
+            }
+          ) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "no-data", children: "—" }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: transaction.kind }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: transaction.mercuryCategory || /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "no-data", children: "—" }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: transaction.generalLedgerCodeName || /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "no-data", children: "—" }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: transaction.categoryData?.name || /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "no-data", children: "—" }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: transaction.attachments && transaction.attachments.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "a",
+            {
+              href: transaction.attachments[0].url,
+              target: "_blank",
+              rel: "noopener noreferrer",
+              className: "attachment-link",
+              children: [
+                "View (",
+                transaction.attachments.length,
+                ")"
+              ]
+            }
+          ) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "no-data", children: "—" }) })
+        ] }, transaction.id)) })
+      ] }) }),
+      selectedTransaction && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "modal-overlay", onClick: () => setSelectedTransaction(null), children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-content", onClick: (e) => e.stopPropagation(), children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-header", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "Credit Card Details" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "modal-close", onClick: () => setSelectedTransaction(null), children: "×" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "modal-body", children: selectedTransaction.details?.creditCardInfo && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card-info", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Email:" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: selectedTransaction.details.creditCardInfo.email })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Payment Method:" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: selectedTransaction.details.creditCardInfo.paymentMethod })
+          ] })
+        ] }) })
+      ] }) })
+    ] })
   ] });
+}
+function Settings() {
+  const { user } = useAuth();
+  const [apiKey, setApiKey] = reactExports.useState("");
+  const [keyName, setKeyName] = reactExports.useState("Mercury API Key");
+  const [currentApiKey, setCurrentApiKey] = reactExports.useState(null);
+  const [isLoading, setIsLoading] = reactExports.useState(false);
+  const [message, setMessage] = reactExports.useState(null);
+  const [showKey, setShowKey] = reactExports.useState(false);
+  reactExports.useEffect(() => {
+    loadCurrentApiKey();
+  }, [user]);
+  const loadCurrentApiKey = async () => {
+    if (!user) return;
+    try {
+      const result = await window.api.apiKeyGetActive(user.id);
+      if (result.success && result.apiKey) {
+        setCurrentApiKey(result.apiKey);
+      }
+    } catch (error) {
+      console.error("Failed to load API key:", error);
+    }
+  };
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!user) return;
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      if (currentApiKey) {
+        const result = await window.api.apiKeyUpdate(currentApiKey.id, apiKey, keyName);
+        if (result.success) {
+          setMessage({ type: "success", text: "API key updated successfully!" });
+          await loadCurrentApiKey();
+          setApiKey("");
+        } else {
+          setMessage({ type: "error", text: result.error || "Failed to update API key" });
+        }
+      } else {
+        const result = await window.api.apiKeyCreate(user.id, apiKey, keyName);
+        if (result.success) {
+          setMessage({ type: "success", text: "API key saved successfully!" });
+          await loadCurrentApiKey();
+          setApiKey("");
+        } else {
+          setMessage({ type: "error", text: result.error || "Failed to save API key" });
+        }
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: "An unexpected error occurred" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  const handleDeactivate = async () => {
+    if (!currentApiKey || !confirm("Are you sure you want to deactivate this API key?")) return;
+    setIsLoading(true);
+    try {
+      const result = await window.api.apiKeyDeactivate(currentApiKey.id);
+      if (result.success) {
+        setMessage({ type: "success", text: "API key deactivated successfully!" });
+        setCurrentApiKey(null);
+      } else {
+        setMessage({ type: "error", text: result.error || "Failed to deactivate API key" });
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: "An unexpected error occurred" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  const maskApiKey = (key) => {
+    if (key.length <= 8) return key;
+    return `${key.slice(0, 4)}${"*".repeat(key.length - 8)}${key.slice(-4)}`;
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "page-title", children: "Settings" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-content", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-section", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "section-title", children: "Mercury API Key" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "section-description", children: "Add your Mercury API key to enable report generation and data fetching." }),
+        currentApiKey && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "current-key-info", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Current API Key:" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "info-value", children: [
+              showKey ? currentApiKey.api_key : maskApiKey(currentApiKey.api_key),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  className: "toggle-visibility-button",
+                  onClick: () => setShowKey(!showKey),
+                  type: "button",
+                  children: showKey ? "Hide" : "Show"
+                }
+              )
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Key Name:" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: currentApiKey.key_name || "Unnamed" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Created:" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: new Date(currentApiKey.created_at).toLocaleDateString() })
+          ] }),
+          currentApiKey.last_used_at && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Last Used:" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: new Date(currentApiKey.last_used_at).toLocaleDateString() })
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { onSubmit: handleSubmit, className: "settings-form", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "keyName", children: "Key Name (Optional)" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "input",
+              {
+                type: "text",
+                id: "keyName",
+                value: keyName,
+                onChange: (e) => setKeyName(e.target.value),
+                placeholder: "e.g., Mercury Production Key",
+                disabled: isLoading
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "apiKey", children: currentApiKey ? "New API Key" : "API Key" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "input",
+              {
+                type: "password",
+                id: "apiKey",
+                value: apiKey,
+                onChange: (e) => setApiKey(e.target.value),
+                placeholder: "Enter your Mercury API key",
+                required: true,
+                disabled: isLoading
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "form-help", children: "Your API key is stored securely in a local encrypted database." })
+          ] }),
+          message && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `message ${message.type}`, children: message.text }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "button-group", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", className: "submit-button", disabled: isLoading, children: isLoading ? "Saving..." : currentApiKey ? "Update API Key" : "Save API Key" }),
+            currentApiKey && /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                type: "button",
+                className: "deactivate-button",
+                onClick: handleDeactivate,
+                disabled: isLoading,
+                children: "Deactivate Key"
+              }
+            )
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-section", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "section-title", children: "Account Information" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Name:" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: user?.name })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Email:" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: user?.email })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Account Created:" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: user?.created_at ? new Date(user.created_at).toLocaleDateString() : "N/A" })
+        ] })
+      ] })
+    ] })
+  ] });
+}
+function AppContent() {
+  const { user, isLoading } = useAuth();
+  if (isLoading) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "loading-container", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "loading-spinner" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "Loading..." })
+    ] });
+  }
+  if (!user) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsx(Auth, {});
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Layout, { children: (currentPage) => {
+    switch (currentPage) {
+      case "home":
+        return /* @__PURE__ */ jsxRuntimeExports.jsx(Home, {});
+      case "reports":
+        return /* @__PURE__ */ jsxRuntimeExports.jsx(Reports, {});
+      case "settings":
+        return /* @__PURE__ */ jsxRuntimeExports.jsx(Settings, {});
+      default:
+        return /* @__PURE__ */ jsxRuntimeExports.jsx(Home, {});
+    }
+  } });
+}
+function App() {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(AuthProvider, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(AppContent, {}) });
 }
 clientExports.createRoot(document.getElementById("root")).render(
   /* @__PURE__ */ jsxRuntimeExports.jsx(reactExports.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(App, {}) })

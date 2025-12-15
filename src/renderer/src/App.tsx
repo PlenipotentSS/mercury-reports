@@ -1,34 +1,49 @@
-import Versions from './components/Versions'
-import electronLogo from './assets/electron.svg'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
+import Auth from './components/Auth'
+import Layout from './components/Layout'
+import Home from './pages/Home'
+import Reports from './pages/Reports'
+import Settings from './pages/Settings'
 
-function App(): React.JSX.Element {
-  const ipcHandle = (): void => window.electron.ipcRenderer.send('ping')
+function AppContent() {
+  const { user, isLoading } = useAuth()
+
+  if (isLoading) {
+    return (
+      <div className="loading-container">
+        <div className="loading-spinner"></div>
+        <p>Loading...</p>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <Auth />
+  }
 
   return (
-    <>
-      <img alt="logo" className="logo" src={electronLogo} />
-      <div className="creator">Powered by electron-vite</div>
-      <div className="text">
-        Build an Electron app with <span className="react">React</span>
-        &nbsp;and <span className="ts">TypeScript</span>
-      </div>
-      <p className="tip">
-        Please try pressing <code>F12</code> to open the devTool
-      </p>
-      <div className="actions">
-        <div className="action">
-          <a href="https://electron-vite.org/" target="_blank" rel="noreferrer">
-            Documentation
-          </a>
-        </div>
-        <div className="action">
-          <a target="_blank" rel="noreferrer" onClick={ipcHandle}>
-            Send IPC
-          </a>
-        </div>
-      </div>
-      <Versions></Versions>
-    </>
+    <Layout>
+      {(currentPage: 'home' | 'reports' | 'settings') => {
+        switch (currentPage) {
+          case 'home':
+            return <Home />
+          case 'reports':
+            return <Reports />
+          case 'settings':
+            return <Settings />
+          default:
+            return <Home />
+        }
+      }}
+    </Layout>
+  )
+}
+
+function App(): React.JSX.Element {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   )
 }
 
