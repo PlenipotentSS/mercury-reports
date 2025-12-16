@@ -31,6 +31,17 @@ export interface ApiKey {
   last_used_at: string | null
 }
 
+export interface Company {
+  id: number
+  user_id: number
+  name: string
+  api_key: string
+  is_active: number
+  created_at: string
+  updated_at: string
+  last_used_at: string | null
+}
+
 // User queries
 export function createUser(name: string, email: string): number {
   const db = getDatabase()
@@ -187,5 +198,80 @@ export function deleteApiKey(id: number): void {
 export function deleteApiKeysByUserId(userId: number): void {
   const db = getDatabase()
   const stmt = db.prepare('DELETE FROM api_keys WHERE user_id = ?')
+  stmt.run(userId)
+}
+
+// Company queries
+export function createCompany(userId: number, name: string, apiKey: string): number {
+  const db = getDatabase()
+  const stmt = db.prepare('INSERT INTO companies (user_id, name, api_key) VALUES (?, ?, ?)')
+  const result = stmt.run(userId, name, apiKey)
+  return result.lastInsertRowid as number
+}
+
+export function getCompanyById(id: number): Company | undefined {
+  const db = getDatabase()
+  const stmt = db.prepare('SELECT * FROM companies WHERE id = ?')
+  return stmt.get(id) as Company | undefined
+}
+
+export function getCompaniesByUserId(userId: number, activeOnly = true): Company[] {
+  const db = getDatabase()
+  const query = activeOnly
+    ? 'SELECT * FROM companies WHERE user_id = ? AND is_active = 1 ORDER BY created_at DESC'
+    : 'SELECT * FROM companies WHERE user_id = ? ORDER BY created_at DESC'
+  const stmt = db.prepare(query)
+  return stmt.all(userId) as Company[]
+}
+
+export function getActiveCompany(userId: number): Company | undefined {
+  const db = getDatabase()
+  const stmt = db.prepare(
+    'SELECT * FROM companies WHERE user_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1'
+  )
+  return stmt.get(userId) as Company | undefined
+}
+
+export function updateCompany(id: number, name: string, apiKey: string): void {
+  const db = getDatabase()
+  const stmt = db.prepare(
+    'UPDATE companies SET name = ?, api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+  )
+  stmt.run(name, apiKey, id)
+}
+
+export function deactivateCompany(id: number): void {
+  const db = getDatabase()
+  const stmt = db.prepare(
+    'UPDATE companies SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+  )
+  stmt.run(id)
+}
+
+export function activateCompany(id: number): void {
+  const db = getDatabase()
+  const stmt = db.prepare(
+    'UPDATE companies SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+  )
+  stmt.run(id)
+}
+
+export function updateCompanyLastUsed(id: number): void {
+  const db = getDatabase()
+  const stmt = db.prepare(
+    'UPDATE companies SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?'
+  )
+  stmt.run(id)
+}
+
+export function deleteCompany(id: number): void {
+  const db = getDatabase()
+  const stmt = db.prepare('DELETE FROM companies WHERE id = ?')
+  stmt.run(id)
+}
+
+export function deleteCompaniesByUserId(userId: number): void {
+  const db = getDatabase()
+  const stmt = db.prepare('DELETE FROM companies WHERE user_id = ?')
   stmt.run(userId)
 }

@@ -3,6 +3,7 @@ import { getDatabase } from './index'
 import { createUsersTable } from './migrations/001_create_users_table'
 import { createReportsTable } from './migrations/002_create_reports_table'
 import { createApiKeysTable } from './migrations/003_create_api_keys_table'
+import { createCompaniesTable } from './migrations/004_create_companies_table'
 
 export interface Migration {
   id: number
@@ -16,7 +17,8 @@ export interface Migration {
 export const migrations: Migration[] = [
   createUsersTable,
   createReportsTable,
-  createApiKeysTable
+  createApiKeysTable,
+  createCompaniesTable
 ]
 
 function createMigrationsTable(db: Database.Database): void {

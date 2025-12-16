@@ -1,10 +1,10 @@
 {
-  "name": "react-ts",
+  "name": "MercuryReports",
   "version": "1.0.0",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.js",
-  "author": "example.com",
-  "homepage": "https://electron-vite.org",
+  "author": "Steven Stevenson <steven@sweetashome.co>",
+  "homepage": "https://www.stevenstevenson.com/",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",

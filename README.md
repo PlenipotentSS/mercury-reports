@@ -1,4 +1,4 @@
-# react-ts
+# MercuryReports
 
 An Electron application with React and TypeScript
 

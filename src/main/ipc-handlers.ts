@@ -7,7 +7,13 @@ import {
   getActiveApiKey,
   getApiKeysByUserId,
   updateApiKey,
-  deactivateApiKey
+  deactivateApiKey,
+  createCompany,
+  getCompanyById,
+  getCompaniesByUserId,
+  updateCompany,
+  deactivateCompany,
+  updateCompanyLastUsed
 } from './database/queries'
 
 export function registerIpcHandlers(): void {
@@ -100,7 +106,96 @@ export function registerIpcHandlers(): void {
     }
   })
 
+  // Company handlers
+  ipcMain.handle('company:create', async (_event, userId: number, name: string, apiKey: string) => {
+    try {
+      const companyId = createCompany(userId, name, apiKey)
+      return { success: true, companyId }
+    } catch (error) {
+      console.error('Create company error:', error)
+      return { success: false, error: 'Failed to create company' }
+    }
+  })
+
+  ipcMain.handle('company:getById', async (_event, id: number) => {
+    try {
+      const company = getCompanyById(id)
+      return { success: true, company }
+    } catch (error) {
+      console.error('Get company error:', error)
+      return { success: false, error: 'Failed to get company' }
+    }
+  })
+
+  ipcMain.handle('company:getAll', async (_event, userId: number, activeOnly = true) => {
+    try {
+      const companies = getCompaniesByUserId(userId, activeOnly)
+      return { success: true, companies }
+    } catch (error) {
+      console.error('Get companies error:', error)
+      return { success: false, error: 'Failed to get companies' }
+    }
+  })
+
+  ipcMain.handle('company:update', async (_event, id: number, name: string, apiKey: string) => {
+    try {
+      updateCompany(id, name, apiKey)
+      return { success: true }
+    } catch (error) {
+      console.error('Update company error:', error)
+      return { success: false, error: 'Failed to update company' }
+    }
+  })
+
+  ipcMain.handle('company:deactivate', async (_event, id: number) => {
+    try {
+      deactivateCompany(id)
+      return { success: true }
+    } catch (error) {
+      console.error('Deactivate company error:', error)
+      return { success: false, error: 'Failed to deactivate company' }
+    }
+  })
+
+  ipcMain.handle('company:updateLastUsed', async (_event, id: number) => {
+    try {
+      updateCompanyLastUsed(id)
+      return { success: true }
+    } catch (error) {
+      console.error('Update company last used error:', error)
+      return { success: false, error: 'Failed to update company last used' }
+    }
+  })
+
   // Mercury API handlers
+  ipcMain.handle('mercury:fetchAccounts', async (_event, apiKey: string) => {
+    try {
+      console.log('Fetching accounts')
+      const url = 'https://api.mercury.com/api/v1/accounts'
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch accounts: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      return { success: true, data }
+    } catch (error) {
+      console.error('Fetch accounts error:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch accounts'
+      }
+    }
+  })
+
   ipcMain.handle(
     'mercury:fetchTransactions',
     async (_event, apiKey: string, queryString?: string) => {

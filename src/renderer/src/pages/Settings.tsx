@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
-interface ApiKey {
+interface Company {
   id: number
   user_id: number
+  name: string
   api_key: string
-  key_name: string | null
   is_active: number
   created_at: string
   updated_at: string
@@ -14,27 +14,29 @@ interface ApiKey {
 
 export default function Settings() {
   const { user } = useAuth()
+  const [companyName, setCompanyName] = useState('')
   const [apiKey, setApiKey] = useState('')
-  const [keyName, setKeyName] = useState('Mercury API Key')
-  const [currentApiKey, setCurrentApiKey] = useState<ApiKey | null>(null)
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [selectedCompany, setSelectedCompany] = useState<Company | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [showKey, setShowKey] = useState(false)
+  const [showKey, setShowKey] = useState<{ [key: number]: boolean }>({})
+  const [isEditing, setIsEditing] = useState(false)
 
   useEffect(() => {
-    loadCurrentApiKey()
+    loadCompanies()
   }, [user])
 
-  const loadCurrentApiKey = async () => {
+  const loadCompanies = async () => {
     if (!user) return
 
     try {
-      const result = await window.api.apiKeyGetActive(user.id)
-      if (result.success && result.apiKey) {
-        setCurrentApiKey(result.apiKey)
+      const result = await window.api.companyGetAll(user.id, true)
+      if (result.success && result.companies) {
+        setCompanies(result.companies)
       }
     } catch (error) {
-      console.error('Failed to load API key:', error)
+      console.error('Failed to load companies:', error)
     }
   }
 
@@ -46,25 +48,25 @@ export default function Settings() {
     setMessage(null)
 
     try {
-      if (currentApiKey) {
-        // Update existing key
-        const result = await window.api.apiKeyUpdate(currentApiKey.id, apiKey, keyName)
+      if (isEditing && selectedCompany) {
+        // Update existing company
+        const result = await window.api.companyUpdate(selectedCompany.id, companyName, apiKey)
         if (result.success) {
-          setMessage({ type: 'success', text: 'API key updated successfully!' })
-          await loadCurrentApiKey()
-          setApiKey('')
+          setMessage({ type: 'success', text: 'Company updated successfully!' })
+          await loadCompanies()
+          resetForm()
         } else {
-          setMessage({ type: 'error', text: result.error || 'Failed to update API key' })
+          setMessage({ type: 'error', text: result.error || 'Failed to update company' })
         }
       } else {
-        // Create new key
-        const result = await window.api.apiKeyCreate(user.id, apiKey, keyName)
+        // Create new company
+        const result = await window.api.companyCreate(user.id, companyName, apiKey)
         if (result.success) {
-          setMessage({ type: 'success', text: 'API key saved successfully!' })
-          await loadCurrentApiKey()
-          setApiKey('')
+          setMessage({ type: 'success', text: 'Company added successfully!' })
+          await loadCompanies()
+          resetForm()
         } else {
-          setMessage({ type: 'error', text: result.error || 'Failed to save API key' })
+          setMessage({ type: 'error', text: result.error || 'Failed to add company' })
         }
       }
     } catch (error) {
@@ -74,28 +76,50 @@ export default function Settings() {
     }
   }
 
-  const handleDeactivate = async () => {
-    if (!currentApiKey || !confirm('Are you sure you want to deactivate this API key?')) return
+  const handleEdit = (company: Company) => {
+    setSelectedCompany(company)
+    setCompanyName(company.name)
+    setApiKey('')
+    setIsEditing(true)
+    setMessage(null)
+  }
+
+  const handleDeactivate = async (company: Company) => {
+    if (!confirm(`Are you sure you want to deactivate ${company.name}?`)) return
 
     setIsLoading(true)
     try {
-      const result = await window.api.apiKeyDeactivate(currentApiKey.id)
+      const result = await window.api.companyDeactivate(company.id)
       if (result.success) {
-        setMessage({ type: 'success', text: 'API key deactivated successfully!' })
-        setCurrentApiKey(null)
+        setMessage({ type: 'success', text: 'Company deactivated successfully!' })
+        await loadCompanies()
+        if (selectedCompany?.id === company.id) {
+          resetForm()
+        }
       } else {
-        setMessage({ type: 'error', text: result.error || 'Failed to deactivate API key' })
+        setMessage({ type: 'error', text: result.error || 'Failed to deactivate company' })
       }
     } catch (error) {
       setMessage({ type: 'error', text: 'An unexpected error occurred' })
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const resetForm = () => {
+    setCompanyName('')
+    setApiKey('')
+    setSelectedCompany(null)
+    setIsEditing(false)
   }
 
   const maskApiKey = (key: string) => {
     if (key.length <= 8) return key
     return `${key.slice(0, 4)}${'*'.repeat(key.length - 8)}${key.slice(-4)}`
+  }
+
+  const toggleShowKey = (companyId: number) => {
+    setShowKey((prev) => ({ ...prev, [companyId]: !prev[companyId] }))
   }
 
   return (
@@ -104,71 +128,104 @@ export default function Settings() {
 
       <div className="page-content">
         <div className="settings-section">
-          <h3 className="section-title">Mercury API Key</h3>
+          <h3 className="section-title">Mercury Companies</h3>
           <p className="section-description">
-            Add your Mercury API key to enable report generation and data fetching.
+            Manage your Mercury companies and API keys. Each company can have its own API key for
+            accessing Mercury transaction data.
           </p>
 
-          {currentApiKey && (
-            <div className="current-key-info">
-              <div className="info-row">
-                <span className="info-label">Current API Key:</span>
-                <span className="info-value">
-                  {showKey ? currentApiKey.api_key : maskApiKey(currentApiKey.api_key)}
-                  <button
-                    className="toggle-visibility-button"
-                    onClick={() => setShowKey(!showKey)}
-                    type="button"
-                  >
-                    {showKey ? 'Hide' : 'Show'}
-                  </button>
-                </span>
-              </div>
-              <div className="info-row">
-                <span className="info-label">Key Name:</span>
-                <span className="info-value">{currentApiKey.key_name || 'Unnamed'}</span>
-              </div>
-              <div className="info-row">
-                <span className="info-label">Created:</span>
-                <span className="info-value">
-                  {new Date(currentApiKey.created_at).toLocaleDateString()}
-                </span>
-              </div>
-              {currentApiKey.last_used_at && (
-                <div className="info-row">
-                  <span className="info-label">Last Used:</span>
-                  <span className="info-value">
-                    {new Date(currentApiKey.last_used_at).toLocaleDateString()}
-                  </span>
+          {companies.length > 0 && (
+            <div className="companies-list">
+              <h4 style={{ marginTop: 0, marginBottom: '16px', fontSize: '16px', color: '#2d3748' }}>
+                Active Companies
+              </h4>
+              {companies.map((company) => (
+                <div key={company.id} className="current-key-info" style={{ marginBottom: '16px' }}>
+                  <div className="info-row">
+                    <span className="info-label">Company Name:</span>
+                    <span className="info-value">{company.name}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="info-label">API Key:</span>
+                    <span className="info-value">
+                      {showKey[company.id] ? company.api_key : maskApiKey(company.api_key)}
+                      <button
+                        className="toggle-visibility-button"
+                        onClick={() => toggleShowKey(company.id)}
+                        type="button"
+                      >
+                        {showKey[company.id] ? 'Hide' : 'Show'}
+                      </button>
+                    </span>
+                  </div>
+                  <div className="info-row">
+                    <span className="info-label">Created:</span>
+                    <span className="info-value">
+                      {new Date(company.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  {company.last_used_at && (
+                    <div className="info-row">
+                      <span className="info-label">Last Used:</span>
+                      <span className="info-value">
+                        {new Date(company.last_used_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                  )}
+                  <div className="info-row" style={{ borderBottom: 'none', paddingTop: '12px' }}>
+                    <button
+                      type="button"
+                      className="toggle-visibility-button"
+                      onClick={() => handleEdit(company)}
+                      disabled={isLoading}
+                      style={{ marginRight: '8px' }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="deactivate-button"
+                      onClick={() => handleDeactivate(company)}
+                      disabled={isLoading}
+                      style={{ flex: 'none', padding: '4px 12px', fontSize: '12px' }}
+                    >
+                      Deactivate
+                    </button>
+                  </div>
                 </div>
-              )}
+              ))}
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="settings-form">
+            <h4 style={{ marginTop: '20px', marginBottom: '16px', fontSize: '16px', color: '#2d3748' }}>
+              {isEditing ? 'Edit Company' : 'Add New Company'}
+            </h4>
+
             <div className="form-group">
-              <label htmlFor="keyName">Key Name (Optional)</label>
+              <label htmlFor="companyName">Company Name</label>
               <input
                 type="text"
-                id="keyName"
-                value={keyName}
-                onChange={(e) => setKeyName(e.target.value)}
-                placeholder="e.g., Mercury Production Key"
+                id="companyName"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                placeholder="e.g., Acme Corporation"
+                required
                 disabled={isLoading}
               />
             </div>
 
             <div className="form-group">
               <label htmlFor="apiKey">
-                {currentApiKey ? 'New API Key' : 'API Key'}
+                {isEditing ? 'New API Key (leave empty to keep current)' : 'Mercury API Key'}
               </label>
               <input
                 type="password"
                 id="apiKey"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Enter your Mercury API key"
-                required
+                placeholder="Enter Mercury API key"
+                required={!isEditing}
                 disabled={isLoading}
               />
               <small className="form-help">
@@ -184,17 +241,17 @@ export default function Settings() {
 
             <div className="button-group">
               <button type="submit" className="submit-button" disabled={isLoading}>
-                {isLoading ? 'Saving...' : currentApiKey ? 'Update API Key' : 'Save API Key'}
+                {isLoading ? 'Saving...' : isEditing ? 'Update Company' : 'Add Company'}
               </button>
 
-              {currentApiKey && (
+              {isEditing && (
                 <button
                   type="button"
                   className="deactivate-button"
-                  onClick={handleDeactivate}
+                  onClick={resetForm}
                   disabled={isLoading}
                 >
-                  Deactivate Key
+                  Cancel
                 </button>
               )}
             </div>

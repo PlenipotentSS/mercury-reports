@@ -91,10 +91,49 @@ const createApiKeysTable = {
     db2.exec("DROP TABLE IF EXISTS api_keys");
   }
 };
+const createCompaniesTable = {
+  id: 4,
+  name: "create_companies_table",
+  up: (db2) => {
+    db2.exec(`
+      CREATE TABLE IF NOT EXISTS companies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        api_key TEXT NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_used_at DATETIME,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+    db2.exec("CREATE INDEX IF NOT EXISTS idx_companies_user_id ON companies(user_id)");
+    db2.exec("CREATE INDEX IF NOT EXISTS idx_companies_active ON companies(is_active)");
+    db2.exec(`
+      INSERT INTO companies (user_id, name, api_key, is_active, created_at, updated_at, last_used_at)
+      SELECT
+        user_id,
+        COALESCE(key_name, 'Default Company'),
+        api_key,
+        is_active,
+        created_at,
+        updated_at,
+        last_used_at
+      FROM api_keys
+    `);
+  },
+  down: (db2) => {
+    db2.exec("DROP INDEX IF EXISTS idx_companies_active");
+    db2.exec("DROP INDEX IF EXISTS idx_companies_user_id");
+    db2.exec("DROP TABLE IF EXISTS companies");
+  }
+};
 const migrations = [
   createUsersTable,
   createReportsTable,
-  createApiKeysTable
+  createApiKeysTable,
+  createCompaniesTable
 ];
 function createMigrationsTable(db2) {
   db2.exec(`
@@ -192,6 +231,44 @@ function deactivateApiKey(id) {
   );
   stmt.run(id);
 }
+function createCompany(userId, name, apiKey) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare("INSERT INTO companies (user_id, name, api_key) VALUES (?, ?, ?)");
+  const result = stmt.run(userId, name, apiKey);
+  return result.lastInsertRowid;
+}
+function getCompanyById(id) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare("SELECT * FROM companies WHERE id = ?");
+  return stmt.get(id);
+}
+function getCompaniesByUserId(userId, activeOnly = true) {
+  const db2 = getDatabase();
+  const query = activeOnly ? "SELECT * FROM companies WHERE user_id = ? AND is_active = 1 ORDER BY created_at DESC" : "SELECT * FROM companies WHERE user_id = ? ORDER BY created_at DESC";
+  const stmt = db2.prepare(query);
+  return stmt.all(userId);
+}
+function updateCompany(id, name, apiKey) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(
+    "UPDATE companies SET name = ?, api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+  );
+  stmt.run(name, apiKey, id);
+}
+function deactivateCompany(id) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(
+    "UPDATE companies SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+  );
+  stmt.run(id);
+}
+function updateCompanyLastUsed(id) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(
+    "UPDATE companies SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?"
+  );
+  stmt.run(id);
+}
 function registerIpcHandlers() {
   electron.ipcMain.handle("user:login", async (_event, email) => {
     try {
@@ -268,6 +345,84 @@ function registerIpcHandlers() {
     } catch (error) {
       console.error("Deactivate API key error:", error);
       return { success: false, error: "Failed to deactivate API key" };
+    }
+  });
+  electron.ipcMain.handle("company:create", async (_event, userId, name, apiKey) => {
+    try {
+      const companyId = createCompany(userId, name, apiKey);
+      return { success: true, companyId };
+    } catch (error) {
+      console.error("Create company error:", error);
+      return { success: false, error: "Failed to create company" };
+    }
+  });
+  electron.ipcMain.handle("company:getById", async (_event, id) => {
+    try {
+      const company = getCompanyById(id);
+      return { success: true, company };
+    } catch (error) {
+      console.error("Get company error:", error);
+      return { success: false, error: "Failed to get company" };
+    }
+  });
+  electron.ipcMain.handle("company:getAll", async (_event, userId, activeOnly = true) => {
+    try {
+      const companies = getCompaniesByUserId(userId, activeOnly);
+      return { success: true, companies };
+    } catch (error) {
+      console.error("Get companies error:", error);
+      return { success: false, error: "Failed to get companies" };
+    }
+  });
+  electron.ipcMain.handle("company:update", async (_event, id, name, apiKey) => {
+    try {
+      updateCompany(id, name, apiKey);
+      return { success: true };
+    } catch (error) {
+      console.error("Update company error:", error);
+      return { success: false, error: "Failed to update company" };
+    }
+  });
+  electron.ipcMain.handle("company:deactivate", async (_event, id) => {
+    try {
+      deactivateCompany(id);
+      return { success: true };
+    } catch (error) {
+      console.error("Deactivate company error:", error);
+      return { success: false, error: "Failed to deactivate company" };
+    }
+  });
+  electron.ipcMain.handle("company:updateLastUsed", async (_event, id) => {
+    try {
+      updateCompanyLastUsed(id);
+      return { success: true };
+    } catch (error) {
+      console.error("Update company last used error:", error);
+      return { success: false, error: "Failed to update company last used" };
+    }
+  });
+  electron.ipcMain.handle("mercury:fetchAccounts", async (_event, apiKey) => {
+    try {
+      console.log("Fetching accounts");
+      const url = "https://api.mercury.com/api/v1/accounts";
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch accounts: ${response.statusText}`);
+      }
+      const data = await response.json();
+      return { success: true, data };
+    } catch (error) {
+      console.error("Fetch accounts error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to fetch accounts"
+      };
     }
   });
   electron.ipcMain.handle(

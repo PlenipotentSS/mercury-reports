@@ -1,6 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
+interface Company {
+  id: number
+  user_id: number
+  name: string
+  api_key: string
+  is_active: number
+  created_at: string
+  updated_at: string
+  last_used_at: string | null
+}
+
 interface Transaction {
   id: string
   amount: number
@@ -34,11 +45,14 @@ interface TransactionsResponse {
 
 export default function Reports() {
   const { user } = useAuth()
-  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null)
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [selectedCompany, setSelectedCompany] = useState<Company | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showFilters, setShowFilters] = useState(false)
+  const [selectedTransactions, setSelectedTransactions] = useState<Set<string>>(new Set())
+  const [showActionsDropdown, setShowActionsDropdown] = useState(false)
 
   // Set default dates: last 7 days
   const getDefaultEndDate = () => {
@@ -52,31 +66,76 @@ export default function Reports() {
     return sevenDaysAgo.toISOString().split('T')[0]
   }
 
+  const getThirtyDaysAgoDate = () => {
+    const today = new Date()
+    const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000)
+    return thirtyDaysAgo.toISOString().split('T')[0]
+  }
+
   const [startDate, setStartDate] = useState(getDefaultStartDate())
   const [endDate, setEndDate] = useState(getDefaultEndDate())
   const [statusFilter, setStatusFilter] = useState('')
 
   useEffect(() => {
-    checkApiKeyAndFetchTransactions()
+    loadCompanies()
   }, [user])
 
-  const checkApiKeyAndFetchTransactions = async () => {
+  useEffect(() => {
+    if (selectedCompany) {
+      fetchTransactions()
+    }
+  }, [selectedCompany, startDate, endDate, statusFilter])
+
+  useEffect(() => {
+    // Clear selections when changing companies or filters
+    setSelectedTransactions(new Set())
+  }, [selectedCompany, startDate, endDate, statusFilter])
+
+  useEffect(() => {
+    // Close dropdown when clicking outside
+    const handleClickOutside = () => {
+      if (showActionsDropdown) {
+        setShowActionsDropdown(false)
+      }
+    }
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [showActionsDropdown])
+
+  const loadCompanies = async () => {
     if (!user) return
 
     try {
       setIsLoading(true)
       setError(null)
 
-      // Check if API key exists
-      const apiKeyResult = await window.api.apiKeyGetActive(user.id)
+      const result = await window.api.companyGetAll(user.id, true)
 
-      if (!apiKeyResult.success || !apiKeyResult.apiKey) {
-        setHasApiKey(false)
+      if (!result.success || !result.companies || result.companies.length === 0) {
+        setCompanies([])
+        setSelectedCompany(null)
         setIsLoading(false)
         return
       }
 
-      setHasApiKey(true)
+      setCompanies(result.companies)
+      // Auto-select first company
+      setSelectedCompany(result.companies[0])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load companies')
+      setIsLoading(false)
+    }
+  }
+
+  const fetchTransactions = async () => {
+    if (!selectedCompany) return
+
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      // Update last used timestamp
+      await window.api.companyUpdateLastUsed(selectedCompany.id)
 
       // Build query parameters
       const params = new URLSearchParams()
@@ -87,7 +146,7 @@ export default function Reports() {
 
       // Fetch transactions from Mercury API via IPC (avoids CORS)
       const result = await window.api.mercuryFetchTransactions(
-        apiKeyResult.apiKey.api_key,
+        selectedCompany.api_key,
         queryString
       )
 
@@ -129,30 +188,115 @@ export default function Reports() {
     }).format(amount)
   }
 
-  if (isLoading) {
+  const toggleTransactionSelection = (transactionId: string) => {
+    setSelectedTransactions((prev) => {
+      const newSet = new Set(prev)
+      if (newSet.has(transactionId)) {
+        newSet.delete(transactionId)
+      } else {
+        newSet.add(transactionId)
+      }
+      return newSet
+    })
+  }
+
+  const toggleAllTransactions = () => {
+    if (selectedTransactions.size === transactions.length) {
+      setSelectedTransactions(new Set())
+    } else {
+      setSelectedTransactions(new Set(transactions.map((t) => t.id)))
+    }
+  }
+
+  const downloadAsCSV = () => {
+    const selectedTxns = transactions.filter((t) => selectedTransactions.has(t.id))
+    if (selectedTxns.length === 0) return
+
+    // CSV headers
+    const headers = [
+      'ID',
+      'Card Name',
+      'Card Payment Method',
+      'Amount',
+      'Created',
+      'Status',
+      'Counterparty Name',
+      'Bank Description',
+      'Kind',
+      'Category',
+      'Mercury Category',
+      'GL Code',
+      'Attachments'
+    ]
+
+    // CSV rows
+    const rows = selectedTxns.map((txn) => [
+      txn.id,
+      txn.details?.creditCardInfo?.email || '',
+      txn.details?.creditCardInfo?.paymentMethod || '',
+      txn.amount.toString(),
+      txn.createdAt,
+      txn.status,
+      txn.counterpartyName || '',
+      txn.bankDescription,
+      txn.kind,
+      txn.categoryData?.name || '',
+      txn.mercuryCategory || '',
+      txn.generalLedgerCodeName || '',
+      txn.attachments.length > 0 ? txn.attachments[0].url : ''
+    ])
+
+    // Escape CSV values
+    const escapeCSV = (value: string) => {
+      if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+        return `"${value.replace(/"/g, '""')}"`
+      }
+      return value
+    }
+
+    // Build CSV content
+    const csvContent = [
+      headers.map(escapeCSV).join(','),
+      ...rows.map((row) => row.map(escapeCSV).join(','))
+    ].join('\n')
+
+    // Create download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `mercury-transactions-${new Date().toISOString().split('T')[0]}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    setShowActionsDropdown(false)
+  }
+
+  if (isLoading && companies.length === 0) {
     return (
       <div className="page full-width">
         <h2 className="page-title">Reports</h2>
         <div className="page-content">
           <div className="loading-container-inline">
             <div className="loading-spinner-small"></div>
-            <p>Loading transactions...</p>
+            <p>Loading companies...</p>
           </div>
         </div>
       </div>
     )
   }
 
-  if (hasApiKey === false) {
+  if (companies.length === 0 && !isLoading) {
     return (
       <div className="page full-width">
         <h2 className="page-title">Reports</h2>
         <div className="page-content">
           <div className="no-api-key-message">
-            <h3>No API Key Found</h3>
+            <h3>No Companies Found</h3>
             <p>
-              No reports can be provided until the Mercury API key is added. Please go to the
-              Settings page to add your API key.
+              No reports can be provided until you add a Mercury company. Please go to the Settings
+              page to add your first company and API key.
             </p>
             <a href="#" onClick={() => window.location.reload()} className="settings-link">
               Go to Settings
@@ -163,15 +307,15 @@ export default function Reports() {
     )
   }
 
-  if (error) {
+  if (error && !selectedCompany) {
     return (
       <div className="page full-width">
         <h2 className="page-title">Reports</h2>
         <div className="page-content">
           <div className="error-box">
-            <h3>Error Loading Transactions</h3>
+            <h3>Error Loading Companies</h3>
             <p>{error}</p>
-            <button onClick={checkApiKeyAndFetchTransactions} className="retry-button">
+            <button onClick={loadCompanies} className="retry-button">
               Retry
             </button>
           </div>
@@ -184,16 +328,68 @@ export default function Reports() {
     <div className="page full-width">
       <h2 className="page-title">Mercury Transactions</h2>
       <div className="page-content">
+        <div className="company-cards-container">
+          <div className="company-cards-scroll">
+            {companies.map((company) => (
+              <div
+                key={company.id}
+                className={`company-card ${selectedCompany?.id === company.id ? 'selected' : ''}`}
+                onClick={() => {
+                  setSelectedCompany(company)
+                  setTransactions([])
+                }}
+              >
+                <div className="company-card-name">{company.name}</div>
+                <div className="company-card-meta">
+                  {company.last_used_at
+                    ? `Last used: ${new Date(company.last_used_at).toLocaleDateString()}`
+                    : 'Never used'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="transactions-header">
-          <p>Total Transactions: {transactions.length}</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <p style={{ margin: 0 }}>Total Transactions: {transactions.length}</p>
+            {selectedTransactions.size > 0 && (
+              <p style={{ margin: 0, color: '#667eea', fontWeight: 600 }}>
+                ({selectedTransactions.size} selected)
+              </p>
+            )}
+          </div>
           <div className="header-actions">
+            {selectedTransactions.size > 0 && (
+              <div className="actions-dropdown-container">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setShowActionsDropdown(!showActionsDropdown)
+                  }}
+                  className="actions-button"
+                >
+                  Actions ▼
+                </button>
+                {showActionsDropdown && (
+                  <div className="actions-dropdown" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={downloadAsCSV} className="dropdown-item">
+                      Download as CSV
+                    </button>
+                    <button className="dropdown-item" disabled style={{ opacity: 0.5 }}>
+                      Download as QuickBooks CSV (Coming Soon)
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             <button
               onClick={() => setShowFilters(!showFilters)}
               className="filter-toggle-button"
             >
               {showFilters ? 'Hide Filters' : 'Show Filters'}
             </button>
-            <button onClick={checkApiKeyAndFetchTransactions} className="refresh-button">
+            <button onClick={fetchTransactions} className="refresh-button">
               Refresh
             </button>
           </div>
@@ -239,7 +435,7 @@ export default function Reports() {
               </select>
             </div>
             <div className="filter-actions">
-              <button onClick={checkApiKeyAndFetchTransactions} className="apply-filters-button">
+              <button onClick={fetchTransactions} className="apply-filters-button">
                 Apply Filters
               </button>
               <button
@@ -252,6 +448,16 @@ export default function Reports() {
               >
                 Reset to Last 7 Days
               </button>
+              <button
+                onClick={() => {
+                  setStartDate(getThirtyDaysAgoDate())
+                  setEndDate(getDefaultEndDate())
+                  setStatusFilter('')
+                }}
+                className="clear-filters-button"
+              >
+                Last 30 Days
+              </button>
             </div>
           </div>
         )}
@@ -263,6 +469,14 @@ export default function Reports() {
             <table className="transactions-table">
               <thead>
                 <tr>
+                  <th style={{ width: '40px' }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedTransactions.size === transactions.length && transactions.length > 0}
+                      onChange={toggleAllTransactions}
+                      className="transaction-checkbox"
+                    />
+                  </th>
                   <th>ID</th>
                   <th>Card Name</th>
                   <th>Amount</th>
@@ -279,6 +493,14 @@ export default function Reports() {
               <tbody>
                 {transactions.map((transaction) => (
                   <tr key={transaction.id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selectedTransactions.has(transaction.id)}
+                        onChange={() => toggleTransactionSelection(transaction.id)}
+                        className="transaction-checkbox"
+                      />
+                    </td>
                     <td className="truncated-id" title={transaction.id}>
                       {truncateId(transaction.id)}
                     </td>

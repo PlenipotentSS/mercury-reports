@@ -18,6 +18,17 @@ interface ApiKey {
   last_used_at: string | null
 }
 
+interface Company {
+  id: number
+  user_id: number
+  name: string
+  api_key: string
+  is_active: number
+  created_at: string
+  updated_at: string
+  last_used_at: string | null
+}
+
 interface API {
   // User authentication
   userLogin: (email: string) => Promise<{ success: boolean; user?: User; error?: string }>
@@ -47,11 +58,31 @@ interface API {
   ) => Promise<{ success: boolean; error?: string }>
   apiKeyDeactivate: (id: number) => Promise<{ success: boolean; error?: string }>
 
+  // Company management
+  companyCreate: (
+    userId: number,
+    name: string,
+    apiKey: string
+  ) => Promise<{ success: boolean; companyId?: number; error?: string }>
+  companyGetById: (id: number) => Promise<{ success: boolean; company?: Company; error?: string }>
+  companyGetAll: (
+    userId: number,
+    activeOnly?: boolean
+  ) => Promise<{ success: boolean; companies?: Company[]; error?: string }>
+  companyUpdate: (
+    id: number,
+    name: string,
+    apiKey: string
+  ) => Promise<{ success: boolean; error?: string }>
+  companyDeactivate: (id: number) => Promise<{ success: boolean; error?: string }>
+  companyUpdateLastUsed: (id: number) => Promise<{ success: boolean; error?: string }>
+
   // Mercury API
   mercuryFetchTransactions: (
     apiKey: string,
     queryString?: string
   ) => Promise<{ success: boolean; data?: any; error?: string }>
+  mercuryFetchAccounts: (apiKey: string) => Promise<{ success: boolean; data?: any; error?: string }>
 }
 
 declare global {

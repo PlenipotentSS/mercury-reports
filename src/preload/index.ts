@@ -18,9 +18,22 @@ const api = {
     ipcRenderer.invoke('apiKey:update', id, apiKey, keyName),
   apiKeyDeactivate: (id: number) => ipcRenderer.invoke('apiKey:deactivate', id),
 
+  // Company management
+  companyCreate: (userId: number, name: string, apiKey: string) =>
+    ipcRenderer.invoke('company:create', userId, name, apiKey),
+  companyGetById: (id: number) => ipcRenderer.invoke('company:getById', id),
+  companyGetAll: (userId: number, activeOnly?: boolean) =>
+    ipcRenderer.invoke('company:getAll', userId, activeOnly),
+  companyUpdate: (id: number, name: string, apiKey: string) =>
+    ipcRenderer.invoke('company:update', id, name, apiKey),
+  companyDeactivate: (id: number) => ipcRenderer.invoke('company:deactivate', id),
+  companyUpdateLastUsed: (id: number) => ipcRenderer.invoke('company:updateLastUsed', id),
+
   // Mercury API
   mercuryFetchTransactions: (apiKey: string, queryString?: string) =>
-    ipcRenderer.invoke('mercury:fetchTransactions', apiKey, queryString)
+    ipcRenderer.invoke('mercury:fetchTransactions', apiKey, queryString),
+  mercuryFetchAccounts: (apiKey: string) =>
+    ipcRenderer.invoke('mercury:fetchAccounts', apiKey)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
