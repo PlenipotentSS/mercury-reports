@@ -70,27 +70,39 @@ export const downloadMercuryCSV = (
 }
 
 const isWithdrawalTransaction = (txn: Transaction): boolean => {
-  return txn.amount > 0 && txn.kind !== 'creditCardTransaction' && txn.amount < 0
+  if (txn.kind === "outgoingPayment") return true
+  if (txn.kind === 'creditCardTransaction') return false
+  if (txn.kind === "other" && txn.bankDescription?.includes('IO AUTOPAY') && txn.amount > 0) return false
+  return txn.amount < 0
 }
 
 const isDepositTransaction = (txn: Transaction): boolean => {
-  if (txn.counterpartyName.includes('Mercury Checking')) return false
-  return txn.amount > 0 && txn.kind !== 'creditCardTransaction' && txn.amount > 0
+  if (txn.kind === "other" && txn.bankDescription?.includes('IO AUTOPAY') && txn.amount > 0) return false
+  if (txn.kind === "outgoingPayment") return false
+  if (txn.kind === 'creditCardTransaction') return false
+  return txn.amount > 0
 }
 
 const isCreditCardTransaction = (txn: Transaction): boolean => {
-  if (txn.counterpartyName.includes('Mercury Checking')) return true
-  return txn.amount > 0 && txn.kind === 'creditCardTransaction'
+  if (txn.kind === "other") return false
+  if (txn.kind === "outgoingPayment") return false
+  return txn.kind === 'creditCardTransaction'
+}
+
+const modifyGlCodeComma = (glCode?: string): string => {
+  return glCode?.includes('|') ? `${glCode?.split("|").join(",")}` : glCode
 }
 
 export const downloadQuickBooksDeposits = (
   transactions: Transaction[],
   selectedTransactionIds: Set<string>,
+  _: string,
   glNameMercuryChecking: string
 ): void => {
   const selectedTxns = transactions.filter(
     (t) => selectedTransactionIds.has(t.id) && isDepositTransaction(t)
   )
+  console.log('Selected Transactions for Deposits Count', selectedTxns.length);
   if (selectedTxns.length === 0) return
 
   const headers = [
@@ -114,7 +126,7 @@ export const downloadQuickBooksDeposits = (
     new Date(txn.createdAt).toLocaleDateString('en-US'), // Date
     `${txn.bankDescription || ''} - ${txn.categoryData?.name || ''}` || '', // Memo
     txn.counterpartyName || '', // Received From
-    txn.generalLedgerCodeName || '', // From Account
+    modifyGlCodeComma(txn.generalLedgerCodeName) || '', // From Account
     txn.bankDescription || '', // Line Memo
     '', // Check No.
     txn.kind || '', // Payment Method
@@ -132,11 +144,13 @@ export const downloadQuickBooksDeposits = (
 export const downloadQuickBooksChecks = (
   transactions: Transaction[],
   selectedTransactionIds: Set<string>,
+  glNameMercuryCreditCard: string,
   glNameMercuryChecking: string
 ): void => {
   const selectedTxns = transactions.filter(
     (t) => selectedTransactionIds.has(t.id) && isWithdrawalTransaction(t)
   )
+  console.log('Selected Transactions for Checks Count', selectedTxns.length);
   if (selectedTxns.length === 0) return
 
   const headers = [
@@ -162,28 +176,34 @@ export const downloadQuickBooksChecks = (
     'Item Class'
   ]
 
-  const rows = selectedTxns.map((txn) => [
-    glNameMercuryChecking, // Bank Account
-    txn.counterpartyName || '', // Payee
-    txn.id.slice(0, 8), // Number (truncated ID)
-    new Date(txn.createdAt).toLocaleDateString('en-US'), // Date
-    Math.abs(txn.amount).toString(), // Total Amount
-    `${txn.bankDescription || ''} - ${txn.categoryData?.name || ''}` || '', // Memo
-    txn.generalLedgerCodeName || '', // Expense Account
-    Math.abs(txn.amount).toString(), // Expense Amount
-    txn.bankDescription || '', // Expense Memo
-    '', // Expense Customer:Job
-    '', // Expense Billable
-    '', // Expense Class
-    '', // Item
-    '', // Item Description
-    '', // Item Qty.
-    '', // Item Cost
-    '', // Item Amount
-    '', // Item Customer:Job
-    '', // Item Billable
-    '' // Item Class
-  ])
+  const rows = selectedTxns.map((txn) => {
+    let expenseAccount = modifyGlCodeComma(txn.generalLedgerCodeName) || '';
+    if (txn.kind === "other" && txn.bankDescription?.includes('IO AUTOPAY')) {
+      expenseAccount = glNameMercuryCreditCard || '';
+    }
+    return [
+      glNameMercuryChecking, // Bank Account
+      txn.counterpartyName || '', // Payee
+      txn.id.slice(0, 8), // Number (truncated ID)
+      new Date(txn.createdAt).toLocaleDateString('en-US'), // Date
+      Math.abs(txn.amount).toString(), // Total Amount
+      `${txn.bankDescription || ''} - ${txn.categoryData?.name || ''}` || '', // Memo
+      expenseAccount, // Expense Account
+      Math.abs(txn.amount).toString(), // Expense Amount
+      txn.bankDescription || '', // Expense Memo
+      '', // Expense Customer:Job
+      '', // Expense Billable
+      '', // Expense Class
+      '', // Item
+      '', // Item Description
+      '', // Item Qty.
+      '', // Item Cost
+      '', // Item Amount
+      '', // Item Customer:Job
+      '', // Item Billable
+      '' // Item Class
+    ]
+  })
 
   const csvContent = buildCSV(headers, rows)
   downloadCSVFile(csvContent, 'quickbooks-checks')
@@ -193,11 +213,12 @@ export const downloadQuickBooksCreditCard = (
   transactions: Transaction[],
   selectedTransactionIds: Set<string>,
   glNameMercuryCreditCard: string,
-  glNameMercuryChecking: string
+  _: string
 ): void => {
   const selectedTxns = transactions.filter(
     (t) => selectedTransactionIds.has(t.id) && isCreditCardTransaction(t)
   )
+  console.log('Selected Transactions for Credit Cards Count', selectedTxns.length);
   if (selectedTxns.length === 0) return
 
   const headers = [
@@ -220,10 +241,7 @@ export const downloadQuickBooksCreditCard = (
     'Item Class'
   ]
   const rows = selectedTxns.map((txn) => {
-    let expenseAccount = txn.generalLedgerCodeName || '';
-    if (txn.counterpartyName.includes('Mercury Checking')){
-      expenseAccount = glNameMercuryChecking;
-    }
+    let expenseAccount = modifyGlCodeComma(txn.generalLedgerCodeName) || '';
 
     return [
       glNameMercuryCreditCard, // Credit Card Account

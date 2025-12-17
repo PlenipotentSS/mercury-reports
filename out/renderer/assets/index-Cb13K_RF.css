@@ -802,9 +802,12 @@ code {
   white-space: nowrap;
 }
 
+.transaction-table tr {
+  border-bottom: 1px solid #e2e8f0;
+}
+
 .transactions-table td {
   padding: 6px 4px;
-  border-bottom: 1px solid #e2e8f0;
   color: #4a5568;
 }
 

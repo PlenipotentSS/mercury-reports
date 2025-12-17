@@ -208,13 +208,15 @@ export default function Reports() {
 
   const handleDownloadQuickBooksDeposits = () => {
     const glNameChecking = ledgerRecords['gl_name_mercury_checking'] || selectedCompany?.name || ''
-    downloadQuickBooksDeposits(transactions, selectedTransactions, glNameChecking)
+    const glNameCreditCard = ledgerRecords['gl_name_mercury_credit_card'] || selectedCompany?.name || ''
+    downloadQuickBooksDeposits(transactions, selectedTransactions, glNameCreditCard, glNameChecking)
     setShowActionsDropdown(false)
   }
 
   const handleDownloadQuickBooksChecks = () => {
     const glNameChecking = ledgerRecords['gl_name_mercury_checking'] || selectedCompany?.name || ''
-    downloadQuickBooksChecks(transactions, selectedTransactions, glNameChecking)
+    const glNameCreditCard = ledgerRecords['gl_name_mercury_credit_card'] || selectedCompany?.name || ''
+    downloadQuickBooksChecks(transactions, selectedTransactions, glNameCreditCard, glNameChecking)
     setShowActionsDropdown(false)
   }
 
@@ -441,7 +443,6 @@ export default function Reports() {
                   <th>Created</th>
                   <th>Status</th>
                   <th>Counterparty</th>
-                  <th>Kind</th>
                   <th>Category</th>
                   <th>GL Code</th>
                   <th>Attachments</th>
@@ -481,13 +482,13 @@ export default function Reports() {
                       <div>{transaction.counterpartyName || <span className="no-data">—</span>}</div>
                       <div className="bank-description-italic">{transaction.bankDescription}</div>
                     </td>
-                    <td>{transaction.kind}</td>
                     <td>
                       {transaction.categoryData?.name}
                       <div className="bank-description-italic">{transaction.mercuryCategory || <span className="no-data">—</span>}</div>
                     </td>
                     <td>
-                      {transaction.generalLedgerCodeName || <span className="no-data">—</span>}
+                      {transaction.generalLedgerCodeName?.split("|").join(",") || <span className="no-data">—</span>}
+                      <div className="bank-description-italic">{transaction.kind}</div>
                     </td>
                     <td>
                       {transaction.attachments && transaction.attachments.length > 0 ? (
