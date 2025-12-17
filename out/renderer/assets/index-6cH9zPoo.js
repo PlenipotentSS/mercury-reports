@@ -12793,20 +12793,30 @@ const downloadMercuryCSV = (transactions, selectedTransactionIds) => {
   downloadCSVFile(csvContent, "mercury-transactions");
 };
 const isWithdrawalTransaction = (txn) => {
-  return txn.amount > 0 && txn.kind !== "creditCardTransaction" && txn.amount < 0;
+  if (txn.kind === "outgoingPayment") return true;
+  if (txn.kind === "creditCardTransaction") return false;
+  if (txn.kind === "other" && txn.bankDescription?.includes("IO AUTOPAY") && txn.amount > 0) return false;
+  return txn.amount < 0;
 };
 const isDepositTransaction = (txn) => {
-  if (txn.counterpartyName.includes("Mercury Checking")) return false;
-  return txn.amount > 0 && txn.kind !== "creditCardTransaction" && txn.amount > 0;
+  if (txn.kind === "other" && txn.bankDescription?.includes("IO AUTOPAY") && txn.amount > 0) return false;
+  if (txn.kind === "outgoingPayment") return false;
+  if (txn.kind === "creditCardTransaction") return false;
+  return txn.amount > 0;
 };
 const isCreditCardTransaction = (txn) => {
-  if (txn.counterpartyName.includes("Mercury Checking")) return true;
-  return txn.amount > 0 && txn.kind === "creditCardTransaction";
+  if (txn.kind === "other") return false;
+  if (txn.kind === "outgoingPayment") return false;
+  return txn.kind === "creditCardTransaction";
 };
-const downloadQuickBooksDeposits = (transactions, selectedTransactionIds, glNameMercuryChecking) => {
+const modifyGlCodeComma = (glCode) => {
+  return glCode?.includes("|") ? `${glCode?.split("|").join(",")}` : glCode;
+};
+const downloadQuickBooksDeposits = (transactions, selectedTransactionIds, _, glNameMercuryChecking) => {
   const selectedTxns = transactions.filter(
     (t) => selectedTransactionIds.has(t.id) && isDepositTransaction(t)
   );
+  console.log("Selected Transactions for Deposits Count", selectedTxns.length);
   if (selectedTxns.length === 0) return;
   const headers = [
     "Deposit To",
@@ -12832,7 +12842,7 @@ const downloadQuickBooksDeposits = (transactions, selectedTransactionIds, glName
     // Memo
     txn.counterpartyName || "",
     // Received From
-    txn.generalLedgerCodeName || "",
+    modifyGlCodeComma(txn.generalLedgerCodeName) || "",
     // From Account
     txn.bankDescription || "",
     // Line Memo
@@ -12854,10 +12864,11 @@ const downloadQuickBooksDeposits = (transactions, selectedTransactionIds, glName
   const csvContent = buildCSV(headers, rows);
   downloadCSVFile(csvContent, "quickbooks-deposits");
 };
-const downloadQuickBooksChecks = (transactions, selectedTransactionIds, glNameMercuryChecking) => {
+const downloadQuickBooksChecks = (transactions, selectedTransactionIds, glNameMercuryCreditCard, glNameMercuryChecking) => {
   const selectedTxns = transactions.filter(
     (t) => selectedTransactionIds.has(t.id) && isWithdrawalTransaction(t)
   );
+  console.log("Selected Transactions for Checks Count", selectedTxns.length);
   if (selectedTxns.length === 0) return;
   const headers = [
     "Bank Account",
@@ -12881,55 +12892,62 @@ const downloadQuickBooksChecks = (transactions, selectedTransactionIds, glNameMe
     "Item Billable",
     "Item Class"
   ];
-  const rows = selectedTxns.map((txn) => [
-    glNameMercuryChecking,
-    // Bank Account
-    txn.counterpartyName || "",
-    // Payee
-    txn.id.slice(0, 8),
-    // Number (truncated ID)
-    new Date(txn.createdAt).toLocaleDateString("en-US"),
-    // Date
-    Math.abs(txn.amount).toString(),
-    // Total Amount
-    `${txn.bankDescription || ""} - ${txn.categoryData?.name || ""}` || "",
-    // Memo
-    txn.generalLedgerCodeName || "",
-    // Expense Account
-    Math.abs(txn.amount).toString(),
-    // Expense Amount
-    txn.bankDescription || "",
-    // Expense Memo
-    "",
-    // Expense Customer:Job
-    "",
-    // Expense Billable
-    "",
-    // Expense Class
-    "",
-    // Item
-    "",
-    // Item Description
-    "",
-    // Item Qty.
-    "",
-    // Item Cost
-    "",
-    // Item Amount
-    "",
-    // Item Customer:Job
-    "",
-    // Item Billable
-    ""
-    // Item Class
-  ]);
+  const rows = selectedTxns.map((txn) => {
+    let expenseAccount = modifyGlCodeComma(txn.generalLedgerCodeName) || "";
+    if (txn.kind === "other" && txn.bankDescription?.includes("IO AUTOPAY")) {
+      expenseAccount = glNameMercuryCreditCard || "";
+    }
+    return [
+      glNameMercuryChecking,
+      // Bank Account
+      txn.counterpartyName || "",
+      // Payee
+      txn.id.slice(0, 8),
+      // Number (truncated ID)
+      new Date(txn.createdAt).toLocaleDateString("en-US"),
+      // Date
+      Math.abs(txn.amount).toString(),
+      // Total Amount
+      `${txn.bankDescription || ""} - ${txn.categoryData?.name || ""}` || "",
+      // Memo
+      expenseAccount,
+      // Expense Account
+      Math.abs(txn.amount).toString(),
+      // Expense Amount
+      txn.bankDescription || "",
+      // Expense Memo
+      "",
+      // Expense Customer:Job
+      "",
+      // Expense Billable
+      "",
+      // Expense Class
+      "",
+      // Item
+      "",
+      // Item Description
+      "",
+      // Item Qty.
+      "",
+      // Item Cost
+      "",
+      // Item Amount
+      "",
+      // Item Customer:Job
+      "",
+      // Item Billable
+      ""
+      // Item Class
+    ];
+  });
   const csvContent = buildCSV(headers, rows);
   downloadCSVFile(csvContent, "quickbooks-checks");
 };
-const downloadQuickBooksCreditCard = (transactions, selectedTransactionIds, glNameMercuryCreditCard, glNameMercuryChecking) => {
+const downloadQuickBooksCreditCard = (transactions, selectedTransactionIds, glNameMercuryCreditCard, _) => {
   const selectedTxns = transactions.filter(
     (t) => selectedTransactionIds.has(t.id) && isCreditCardTransaction(t)
   );
+  console.log("Selected Transactions for Credit Cards Count", selectedTxns.length);
   if (selectedTxns.length === 0) return;
   const headers = [
     "Credit Card Account",
@@ -12951,10 +12969,7 @@ const downloadQuickBooksCreditCard = (transactions, selectedTransactionIds, glNa
     "Item Class"
   ];
   const rows = selectedTxns.map((txn) => {
-    let expenseAccount = txn.generalLedgerCodeName || "";
-    if (txn.counterpartyName.includes("Mercury Checking")) {
-      expenseAccount = glNameMercuryChecking;
-    }
+    let expenseAccount = modifyGlCodeComma(txn.generalLedgerCodeName) || "";
     return [
       glNameMercuryCreditCard,
       // Credit Card Account
@@ -13155,18 +13170,20 @@ function Reports() {
   };
   const handleDownloadQuickBooksDeposits = () => {
     const glNameChecking = ledgerRecords["gl_name_mercury_checking"] || selectedCompany?.name || "";
-    downloadQuickBooksDeposits(transactions, selectedTransactions, glNameChecking);
+    const glNameCreditCard = ledgerRecords["gl_name_mercury_credit_card"] || selectedCompany?.name || "";
+    downloadQuickBooksDeposits(transactions, selectedTransactions, glNameCreditCard, glNameChecking);
     setShowActionsDropdown(false);
   };
   const handleDownloadQuickBooksChecks = () => {
     const glNameChecking = ledgerRecords["gl_name_mercury_checking"] || selectedCompany?.name || "";
-    downloadQuickBooksChecks(transactions, selectedTransactions, glNameChecking);
+    const glNameCreditCard = ledgerRecords["gl_name_mercury_credit_card"] || selectedCompany?.name || "";
+    downloadQuickBooksChecks(transactions, selectedTransactions, glNameCreditCard, glNameChecking);
     setShowActionsDropdown(false);
   };
   const handleDownloadQuickBooksCreditCard = () => {
-    const glNameChecking = ledgerRecords["gl_name_mercury_checking"] || selectedCompany?.name || "";
+    ledgerRecords["gl_name_mercury_checking"] || selectedCompany?.name || "";
     const glNameCreditCard = ledgerRecords["gl_name_mercury_credit_card"] || selectedCompany?.name || "";
-    downloadQuickBooksCreditCard(transactions, selectedTransactions, glNameCreditCard, glNameChecking);
+    downloadQuickBooksCreditCard(transactions, selectedTransactions, glNameCreditCard);
     setShowActionsDropdown(false);
   };
   if (isLoading && companies.length === 0) {
@@ -13352,7 +13369,6 @@ function Reports() {
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Created" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Status" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Counterparty" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Kind" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Category" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "GL Code" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Attachments" }),
@@ -13386,12 +13402,14 @@ function Reports() {
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: transaction.counterpartyName || /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "no-data", children: "—" }) }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "bank-description-italic", children: transaction.bankDescription })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: transaction.kind }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { children: [
             transaction.categoryData?.name,
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "bank-description-italic", children: transaction.mercuryCategory || /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "no-data", children: "—" }) })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: transaction.generalLedgerCodeName || /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "no-data", children: "—" }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { children: [
+            transaction.generalLedgerCodeName?.split("|").join(",") || /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "no-data", children: "—" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "bank-description-italic", children: transaction.kind })
+          ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: transaction.attachments && transaction.attachments.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
             "a",
             {

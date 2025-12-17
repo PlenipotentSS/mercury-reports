@@ -2,9 +2,21 @@
 const electron = require("electron");
 const path = require("path");
 const utils = require("@electron-toolkit/utils");
-const Database = require("better-sqlite3");
 const fs = require("fs");
 const icon = path.join(__dirname, "../../resources/icon.png");
+let DatabaseConstructor;
+try {
+  const path2 = require("path");
+  const betterSqlite3Path = path2.join(
+    process.resourcesPath,
+    "app.asar.unpacked",
+    "node_modules",
+    "better-sqlite3"
+  );
+  DatabaseConstructor = require(betterSqlite3Path);
+} catch (error) {
+  DatabaseConstructor = require("better-sqlite3");
+}
 let db = null;
 function getDatabase() {
   if (!db) {
@@ -13,7 +25,7 @@ function getDatabase() {
     if (!fs.existsSync(userDataPath)) {
       fs.mkdirSync(userDataPath, { recursive: true });
     }
-    db = new Database(dbPath);
+    db = new DatabaseConstructor(dbPath);
     db.pragma("journal_mode = WAL");
     console.log(`Database initialized at: ${dbPath}`);
   }
