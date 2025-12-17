@@ -11,6 +11,9 @@ An Electron application with React and TypeScript
 ### Install
 
 ```bash
+$ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+$ nvm install & nvm use
+$ npm install -g pnpm
 $ pnpm install
 ```
 
