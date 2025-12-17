@@ -4,6 +4,7 @@ import { createUsersTable } from './migrations/001_create_users_table'
 import { createReportsTable } from './migrations/002_create_reports_table'
 import { createApiKeysTable } from './migrations/003_create_api_keys_table'
 import { createCompaniesTable } from './migrations/004_create_companies_table'
+import * as createCompanyLedgerRecordsTable from './migrations/005_create_company_ledger_records_table'
 
 export interface Migration {
   id: number
@@ -18,7 +19,13 @@ export const migrations: Migration[] = [
   createUsersTable,
   createReportsTable,
   createApiKeysTable,
-  createCompaniesTable
+  createCompaniesTable,
+  {
+    id: 5,
+    name: 'create_company_ledger_records_table',
+    up: createCompanyLedgerRecordsTable.up,
+    down: createCompanyLedgerRecordsTable.down
+  }
 ]
 
 function createMigrationsTable(db: Database.Database): void {

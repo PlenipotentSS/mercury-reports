@@ -33,7 +33,17 @@ const api = {
   mercuryFetchTransactions: (apiKey: string, queryString?: string) =>
     ipcRenderer.invoke('mercury:fetchTransactions', apiKey, queryString),
   mercuryFetchAccounts: (apiKey: string) =>
-    ipcRenderer.invoke('mercury:fetchAccounts', apiKey)
+    ipcRenderer.invoke('mercury:fetchAccounts', apiKey),
+
+  // Company Ledger Records
+  companyLedgerSet: (companyId: number, key: string, value: string) =>
+    ipcRenderer.invoke('companyLedger:set', companyId, key, value),
+  companyLedgerGet: (companyId: number, key: string) =>
+    ipcRenderer.invoke('companyLedger:get', companyId, key),
+  companyLedgerGetAll: (companyId: number) =>
+    ipcRenderer.invoke('companyLedger:getAll', companyId),
+  companyLedgerDelete: (companyId: number, key: string) =>
+    ipcRenderer.invoke('companyLedger:delete', companyId, key)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

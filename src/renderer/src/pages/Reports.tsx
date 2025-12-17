@@ -1,47 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-
-interface Company {
-  id: number
-  user_id: number
-  name: string
-  api_key: string
-  is_active: number
-  created_at: string
-  updated_at: string
-  last_used_at: string | null
-}
-
-interface Transaction {
-  id: string
-  amount: number
-  createdAt: string
-  status: string
-  bankDescription: string
-  counterpartyName?: string
-  details?: {
-    creditCardInfo?: {
-      email: string
-      paymentMethod: string
-    }
-  }
-  kind: string
-  mercuryCategory: string
-  generalLedgerCodeName: string
-  categoryData?: {
-    id: string
-    name: string
-  }
-  attachments: Array<{
-    fileName: string
-    url: string
-    attachmentType: string
-  }>
-}
-
-interface TransactionsResponse {
-  transactions: Transaction[]
-}
+import {
+  downloadMercuryCSV,
+  downloadQuickBooksDeposits,
+  downloadQuickBooksChecks,
+  downloadQuickBooksCreditCard
+} from '../utils/csvExports'
+import type { Company, Transaction, TransactionsResponse } from '../types'
 
 export default function Reports() {
   const { user } = useAuth()
@@ -53,6 +18,7 @@ export default function Reports() {
   const [showFilters, setShowFilters] = useState(false)
   const [selectedTransactions, setSelectedTransactions] = useState<Set<string>>(new Set())
   const [showActionsDropdown, setShowActionsDropdown] = useState(false)
+  const [ledgerRecords, setLedgerRecords] = useState<{ [key: string]: string }>({})
 
   // Set default dates: last 7 days
   const getDefaultEndDate = () => {
@@ -83,6 +49,7 @@ export default function Reports() {
   useEffect(() => {
     if (selectedCompany) {
       fetchTransactions()
+      loadLedgerRecords(selectedCompany.id)
     }
   }, [selectedCompany, startDate, endDate, statusFilter])
 
@@ -101,6 +68,17 @@ export default function Reports() {
     document.addEventListener('click', handleClickOutside)
     return () => document.removeEventListener('click', handleClickOutside)
   }, [showActionsDropdown])
+
+  // Auto-refresh every 1 minute
+  useEffect(() => {
+    if (!selectedCompany) return
+
+    const interval = setInterval(() => {
+      fetchTransactions()
+    }, 60000) // 60000ms = 1 minute
+
+    return () => clearInterval(interval)
+  }, [selectedCompany, startDate, endDate, statusFilter])
 
   const loadCompanies = async () => {
     if (!user) return
@@ -124,6 +102,21 @@ export default function Reports() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load companies')
       setIsLoading(false)
+    }
+  }
+
+  const loadLedgerRecords = async (companyId: number) => {
+    try {
+      const result = await window.api.companyLedgerGetAll(companyId)
+      if (result.success && result.records) {
+        const recordsMap: { [key: string]: string } = {}
+        result.records.forEach((record) => {
+          recordsMap[record.key] = record.value
+        })
+        setLedgerRecords(recordsMap)
+      }
+    } catch (error) {
+      console.error('Failed to load ledger records:', error)
     }
   }
 
@@ -208,68 +201,27 @@ export default function Reports() {
     }
   }
 
-  const downloadAsCSV = () => {
-    const selectedTxns = transactions.filter((t) => selectedTransactions.has(t.id))
-    if (selectedTxns.length === 0) return
+  const handleDownloadMercuryCSV = () => {
+    downloadMercuryCSV(transactions, selectedTransactions)
+    setShowActionsDropdown(false)
+  }
 
-    // CSV headers
-    const headers = [
-      'ID',
-      'Card Name',
-      'Card Payment Method',
-      'Amount',
-      'Created',
-      'Status',
-      'Counterparty Name',
-      'Bank Description',
-      'Kind',
-      'Category',
-      'Mercury Category',
-      'GL Code',
-      'Attachments'
-    ]
+  const handleDownloadQuickBooksDeposits = () => {
+    const glNameChecking = ledgerRecords['gl_name_mercury_checking'] || selectedCompany?.name || ''
+    downloadQuickBooksDeposits(transactions, selectedTransactions, glNameChecking)
+    setShowActionsDropdown(false)
+  }
 
-    // CSV rows
-    const rows = selectedTxns.map((txn) => [
-      txn.id,
-      txn.details?.creditCardInfo?.email || '',
-      txn.details?.creditCardInfo?.paymentMethod || '',
-      txn.amount.toString(),
-      txn.createdAt,
-      txn.status,
-      txn.counterpartyName || '',
-      txn.bankDescription,
-      txn.kind,
-      txn.categoryData?.name || '',
-      txn.mercuryCategory || '',
-      txn.generalLedgerCodeName || '',
-      txn.attachments.length > 0 ? txn.attachments[0].url : ''
-    ])
+  const handleDownloadQuickBooksChecks = () => {
+    const glNameChecking = ledgerRecords['gl_name_mercury_checking'] || selectedCompany?.name || ''
+    downloadQuickBooksChecks(transactions, selectedTransactions, glNameChecking)
+    setShowActionsDropdown(false)
+  }
 
-    // Escape CSV values
-    const escapeCSV = (value: string) => {
-      if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-        return `"${value.replace(/"/g, '""')}"`
-      }
-      return value
-    }
-
-    // Build CSV content
-    const csvContent = [
-      headers.map(escapeCSV).join(','),
-      ...rows.map((row) => row.map(escapeCSV).join(','))
-    ].join('\n')
-
-    // Create download
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const link = document.createElement('a')
-    const url = URL.createObjectURL(blob)
-    link.setAttribute('href', url)
-    link.setAttribute('download', `mercury-transactions-${new Date().toISOString().split('T')[0]}.csv`)
-    link.style.visibility = 'hidden'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+  const handleDownloadQuickBooksCreditCard = () => {
+    const glNameChecking = ledgerRecords['gl_name_mercury_checking'] || selectedCompany?.name || ''
+    const glNameCreditCard = ledgerRecords['gl_name_mercury_credit_card'] || selectedCompany?.name || ''
+    downloadQuickBooksCreditCard(transactions, selectedTransactions, glNameCreditCard, glNameChecking)
     setShowActionsDropdown(false)
   }
 
@@ -373,11 +325,17 @@ export default function Reports() {
                 </button>
                 {showActionsDropdown && (
                   <div className="actions-dropdown" onClick={(e) => e.stopPropagation()}>
-                    <button onClick={downloadAsCSV} className="dropdown-item">
+                    <button onClick={handleDownloadMercuryCSV} className="dropdown-item">
                       Download as CSV
                     </button>
-                    <button className="dropdown-item" disabled style={{ opacity: 0.5 }}>
-                      Download as QuickBooks CSV (Coming Soon)
+                    <button onClick={handleDownloadQuickBooksDeposits} className="dropdown-item">
+                      QuickBooks CSV - Deposits
+                    </button>
+                    <button onClick={handleDownloadQuickBooksChecks} className="dropdown-item">
+                      QuickBooks CSV - Withdrawals
+                    </button>
+                    <button onClick={handleDownloadQuickBooksCreditCard} className="dropdown-item">
+                      QuickBooks CSV - Credit Card
                     </button>
                   </div>
                 )}

@@ -1,16 +1,20 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import type { Company } from '../types'
 
-interface Company {
+interface LedgerRecord {
   id: number
-  user_id: number
-  name: string
-  api_key: string
-  is_active: number
+  company_id: number
+  key: string
+  value: string
   created_at: string
   updated_at: string
-  last_used_at: string | null
 }
+
+const LEDGER_PRESETS = [
+  { key: 'gl_name_mercury_checking', label: 'GL Name Mercury Checking' },
+  { key: 'gl_name_mercury_credit_card', label: 'GL Name Mercury Credit Card' }
+]
 
 export default function Settings() {
   const { user } = useAuth()
@@ -22,10 +26,19 @@ export default function Settings() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [showKey, setShowKey] = useState<{ [key: number]: boolean }>({})
   const [isEditing, setIsEditing] = useState(false)
+  const [ledgerCompany, setLedgerCompany] = useState<Company | null>(null)
+  const [ledgerRecords, setLedgerRecords] = useState<{ [key: string]: string }>({})
+  const [ledgerMessage, setLedgerMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
     loadCompanies()
   }, [user])
+
+  useEffect(() => {
+    if (ledgerCompany) {
+      loadLedgerRecords(ledgerCompany.id)
+    }
+  }, [ledgerCompany])
 
   const loadCompanies = async () => {
     if (!user) return
@@ -120,6 +133,46 @@ export default function Settings() {
 
   const toggleShowKey = (companyId: number) => {
     setShowKey((prev) => ({ ...prev, [companyId]: !prev[companyId] }))
+  }
+
+  const loadLedgerRecords = async (companyId: number) => {
+    try {
+      const result = await window.api.companyLedgerGetAll(companyId)
+      if (result.success && result.records) {
+        const recordsMap: { [key: string]: string } = {}
+        result.records.forEach((record) => {
+          recordsMap[record.key] = record.value
+        })
+        setLedgerRecords(recordsMap)
+      }
+    } catch (error) {
+      console.error('Failed to load ledger records:', error)
+    }
+  }
+
+  const handleLedgerRecordChange = (key: string, value: string) => {
+    setLedgerRecords((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const handleSaveLedgerRecords = async () => {
+    if (!ledgerCompany) return
+
+    setIsLoading(true)
+    setLedgerMessage(null)
+
+    try {
+      // Save all preset records
+      for (const preset of LEDGER_PRESETS) {
+        const value = ledgerRecords[preset.key] || ''
+        await window.api.companyLedgerSet(ledgerCompany.id, preset.key, value)
+      }
+
+      setLedgerMessage({ type: 'success', text: 'Ledger settings saved successfully!' })
+    } catch (error) {
+      setLedgerMessage({ type: 'error', text: 'Failed to save ledger settings' })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -256,6 +309,77 @@ export default function Settings() {
               )}
             </div>
           </form>
+        </div>
+
+        <div className="settings-section">
+          <h3 className="section-title">Company Ledger Configuration</h3>
+          <p className="section-description">
+            Configure general ledger names for each company. These settings are used when exporting
+            to QuickBooks CSV format.
+          </p>
+
+          {companies.length > 0 && (
+            <>
+              <div className="form-group">
+                <label htmlFor="ledgerCompanySelect">Select Company</label>
+                <select
+                  id="ledgerCompanySelect"
+                  value={ledgerCompany?.id || ''}
+                  onChange={(e) => {
+                    const company = companies.find((c) => c.id === Number(e.target.value))
+                    setLedgerCompany(company || null)
+                  }}
+                  className="filter-input"
+                  style={{ width: '100%' }}
+                >
+                  <option value="">-- Select a company --</option>
+                  {companies.map((company) => (
+                    <option key={company.id} value={company.id}>
+                      {company.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {ledgerCompany && (
+                <>
+                  {LEDGER_PRESETS.map((preset) => (
+                    <div key={preset.key} className="form-group">
+                      <label htmlFor={preset.key}>{preset.label}</label>
+                      <input
+                        type="text"
+                        id={preset.key}
+                        value={ledgerRecords[preset.key] || ''}
+                        onChange={(e) => handleLedgerRecordChange(preset.key, e.target.value)}
+                        placeholder={`Enter ${preset.label.toLowerCase()}`}
+                        disabled={isLoading}
+                      />
+                    </div>
+                  ))}
+
+                  {ledgerMessage && (
+                    <div className={`message ${ledgerMessage.type}`}>{ledgerMessage.text}</div>
+                  )}
+
+                  <button
+                    type="button"
+                    className="submit-button"
+                    onClick={handleSaveLedgerRecords}
+                    disabled={isLoading}
+                    style={{ marginTop: '12px' }}
+                  >
+                    {isLoading ? 'Saving...' : 'Save Ledger Settings'}
+                  </button>
+                </>
+              )}
+            </>
+          )}
+
+          {companies.length === 0 && (
+            <p style={{ color: '#718096', fontStyle: 'italic' }}>
+              Please add a company first to configure ledger settings.
+            </p>
+          )}
         </div>
 
         <div className="settings-section">

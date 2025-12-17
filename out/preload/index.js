@@ -21,7 +21,12 @@ const api = {
   companyUpdateLastUsed: (id) => electron.ipcRenderer.invoke("company:updateLastUsed", id),
   // Mercury API
   mercuryFetchTransactions: (apiKey, queryString) => electron.ipcRenderer.invoke("mercury:fetchTransactions", apiKey, queryString),
-  mercuryFetchAccounts: (apiKey) => electron.ipcRenderer.invoke("mercury:fetchAccounts", apiKey)
+  mercuryFetchAccounts: (apiKey) => electron.ipcRenderer.invoke("mercury:fetchAccounts", apiKey),
+  // Company Ledger Records
+  companyLedgerSet: (companyId, key, value) => electron.ipcRenderer.invoke("companyLedger:set", companyId, key, value),
+  companyLedgerGet: (companyId, key) => electron.ipcRenderer.invoke("companyLedger:get", companyId, key),
+  companyLedgerGetAll: (companyId) => electron.ipcRenderer.invoke("companyLedger:getAll", companyId),
+  companyLedgerDelete: (companyId, key) => electron.ipcRenderer.invoke("companyLedger:delete", companyId, key)
 };
 if (process.contextIsolated) {
   try {

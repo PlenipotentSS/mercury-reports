@@ -275,3 +275,59 @@ export function deleteCompaniesByUserId(userId: number): void {
   const stmt = db.prepare('DELETE FROM companies WHERE user_id = ?')
   stmt.run(userId)
 }
+
+// Company Ledger Record queries
+export interface CompanyLedgerRecord {
+  id: number
+  company_id: number
+  key: string
+  value: string
+  created_at: string
+  updated_at: string
+}
+
+export function setCompanyLedgerRecord(
+  companyId: number,
+  key: string,
+  value: string
+): void {
+  const db = getDatabase()
+  const stmt = db.prepare(`
+    INSERT INTO company_ledger_records (company_id, key, value)
+    VALUES (?, ?, ?)
+    ON CONFLICT(company_id, key)
+    DO UPDATE SET value = ?, updated_at = datetime('now')
+  `)
+  stmt.run(companyId, key, value, value)
+}
+
+export function getCompanyLedgerRecord(
+  companyId: number,
+  key: string
+): CompanyLedgerRecord | undefined {
+  const db = getDatabase()
+  const stmt = db.prepare(
+    'SELECT * FROM company_ledger_records WHERE company_id = ? AND key = ?'
+  )
+  return stmt.get(companyId, key) as CompanyLedgerRecord | undefined
+}
+
+export function getAllCompanyLedgerRecords(companyId: number): CompanyLedgerRecord[] {
+  const db = getDatabase()
+  const stmt = db.prepare(
+    'SELECT * FROM company_ledger_records WHERE company_id = ? ORDER BY key'
+  )
+  return stmt.all(companyId) as CompanyLedgerRecord[]
+}
+
+export function deleteCompanyLedgerRecord(companyId: number, key: string): void {
+  const db = getDatabase()
+  const stmt = db.prepare('DELETE FROM company_ledger_records WHERE company_id = ? AND key = ?')
+  stmt.run(companyId, key)
+}
+
+export function deleteAllCompanyLedgerRecords(companyId: number): void {
+  const db = getDatabase()
+  const stmt = db.prepare('DELETE FROM company_ledger_records WHERE company_id = ?')
+  stmt.run(companyId)
+}

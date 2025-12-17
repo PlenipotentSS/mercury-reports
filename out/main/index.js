@@ -129,11 +129,41 @@ const createCompaniesTable = {
     db2.exec("DROP TABLE IF EXISTS companies");
   }
 };
+function up(db2) {
+  db2.exec(`
+    CREATE TABLE IF NOT EXISTS company_ledger_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company_id INTEGER NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+      UNIQUE(company_id, key)
+    );
+
+    CREATE INDEX idx_company_ledger_records_company_id ON company_ledger_records(company_id);
+    CREATE INDEX idx_company_ledger_records_key ON company_ledger_records(key);
+  `);
+}
+function down(db2) {
+  db2.exec(`
+    DROP INDEX IF EXISTS idx_company_ledger_records_key;
+    DROP INDEX IF EXISTS idx_company_ledger_records_company_id;
+    DROP TABLE IF EXISTS company_ledger_records;
+  `);
+}
 const migrations = [
   createUsersTable,
   createReportsTable,
   createApiKeysTable,
-  createCompaniesTable
+  createCompaniesTable,
+  {
+    id: 5,
+    name: "create_company_ledger_records_table",
+    up,
+    down
+  }
 ];
 function createMigrationsTable(db2) {
   db2.exec(`
@@ -269,6 +299,35 @@ function updateCompanyLastUsed(id) {
   );
   stmt.run(id);
 }
+function setCompanyLedgerRecord(companyId, key, value) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(`
+    INSERT INTO company_ledger_records (company_id, key, value)
+    VALUES (?, ?, ?)
+    ON CONFLICT(company_id, key)
+    DO UPDATE SET value = ?, updated_at = datetime('now')
+  `);
+  stmt.run(companyId, key, value, value);
+}
+function getCompanyLedgerRecord(companyId, key) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(
+    "SELECT * FROM company_ledger_records WHERE company_id = ? AND key = ?"
+  );
+  return stmt.get(companyId, key);
+}
+function getAllCompanyLedgerRecords(companyId) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(
+    "SELECT * FROM company_ledger_records WHERE company_id = ? ORDER BY key"
+  );
+  return stmt.all(companyId);
+}
+function deleteCompanyLedgerRecord(companyId, key) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare("DELETE FROM company_ledger_records WHERE company_id = ? AND key = ?");
+  stmt.run(companyId, key);
+}
 function registerIpcHandlers() {
   electron.ipcMain.handle("user:login", async (_event, email) => {
     try {
@@ -403,7 +462,6 @@ function registerIpcHandlers() {
   });
   electron.ipcMain.handle("mercury:fetchAccounts", async (_event, apiKey) => {
     try {
-      console.log("Fetching accounts");
       const url = "https://api.mercury.com/api/v1/accounts";
       const response = await fetch(url, {
         method: "GET",
@@ -429,7 +487,6 @@ function registerIpcHandlers() {
     "mercury:fetchTransactions",
     async (_event, apiKey, queryString) => {
       try {
-        console.log("Fetching transactions with query:", queryString);
         const url = queryString ? `https://api.mercury.com/api/v1/transactions?${queryString}` : "https://api.mercury.com/api/v1/transactions";
         const response = await fetch(url, {
           method: "GET",
@@ -452,6 +509,45 @@ function registerIpcHandlers() {
       }
     }
   );
+  electron.ipcMain.handle(
+    "companyLedger:set",
+    async (_event, companyId, key, value) => {
+      try {
+        setCompanyLedgerRecord(companyId, key, value);
+        return { success: true };
+      } catch (error) {
+        console.error("Set company ledger record error:", error);
+        return { success: false, error: "Failed to set ledger record" };
+      }
+    }
+  );
+  electron.ipcMain.handle("companyLedger:get", async (_event, companyId, key) => {
+    try {
+      const record = getCompanyLedgerRecord(companyId, key);
+      return { success: true, record };
+    } catch (error) {
+      console.error("Get company ledger record error:", error);
+      return { success: false, error: "Failed to get ledger record" };
+    }
+  });
+  electron.ipcMain.handle("companyLedger:getAll", async (_event, companyId) => {
+    try {
+      const records = getAllCompanyLedgerRecords(companyId);
+      return { success: true, records };
+    } catch (error) {
+      console.error("Get all company ledger records error:", error);
+      return { success: false, error: "Failed to get ledger records" };
+    }
+  });
+  electron.ipcMain.handle("companyLedger:delete", async (_event, companyId, key) => {
+    try {
+      deleteCompanyLedgerRecord(companyId, key);
+      return { success: true };
+    } catch (error) {
+      console.error("Delete company ledger record error:", error);
+      return { success: false, error: "Failed to delete ledger record" };
+    }
+  });
 }
 function createWindow() {
   const mainWindow = new electron.BrowserWindow({

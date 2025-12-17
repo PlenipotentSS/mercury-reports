@@ -1,33 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-
-interface Company {
-  id: number
-  user_id: number
-  name: string
-  api_key: string
-  is_active: number
-  created_at: string
-  updated_at: string
-  last_used_at: string | null
-}
-
-interface Account {
-  id: string
-  name: string
-  nickname: string
-  availableBalance: number
-  currentBalance: number
-  dashboardLink: string
-  status: string
-  kind: string
-}
-
-interface CompanyAccounts {
-  company: Company
-  accounts: Account[]
-  error?: string
-}
+import type { Company, Account, CompanyAccounts } from '../types'
 
 export default function Home() {
   const { user } = useAuth()
@@ -36,6 +9,15 @@ export default function Home() {
 
   useEffect(() => {
     loadAllCompanyAccounts()
+  }, [user])
+
+  // Auto-refresh every 1 minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadAllCompanyAccounts()
+    }, 60000) // 60000ms = 1 minute
+
+    return () => clearInterval(interval)
   }, [user])
 
   const loadAllCompanyAccounts = async () => {

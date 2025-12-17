@@ -29,6 +29,15 @@ interface Company {
   last_used_at: string | null
 }
 
+interface CompanyLedgerRecord {
+  id: number
+  company_id: number
+  key: string
+  value: string
+  created_at: string
+  updated_at: string
+}
+
 interface API {
   // User authentication
   userLogin: (email: string) => Promise<{ success: boolean; user?: User; error?: string }>
@@ -83,6 +92,24 @@ interface API {
     queryString?: string
   ) => Promise<{ success: boolean; data?: any; error?: string }>
   mercuryFetchAccounts: (apiKey: string) => Promise<{ success: boolean; data?: any; error?: string }>
+
+  // Company Ledger Records
+  companyLedgerSet: (
+    companyId: number,
+    key: string,
+    value: string
+  ) => Promise<{ success: boolean; error?: string }>
+  companyLedgerGet: (
+    companyId: number,
+    key: string
+  ) => Promise<{ success: boolean; record?: CompanyLedgerRecord; error?: string }>
+  companyLedgerGetAll: (
+    companyId: number
+  ) => Promise<{ success: boolean; records?: CompanyLedgerRecord[]; error?: string }>
+  companyLedgerDelete: (
+    companyId: number,
+    key: string
+  ) => Promise<{ success: boolean; error?: string }>
 }
 
 declare global {

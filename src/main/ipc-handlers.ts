@@ -13,7 +13,11 @@ import {
   getCompaniesByUserId,
   updateCompany,
   deactivateCompany,
-  updateCompanyLastUsed
+  updateCompanyLastUsed,
+  setCompanyLedgerRecord,
+  getCompanyLedgerRecord,
+  getAllCompanyLedgerRecords,
+  deleteCompanyLedgerRecord
 } from './database/queries'
 
 export function registerIpcHandlers(): void {
@@ -170,7 +174,6 @@ export function registerIpcHandlers(): void {
   // Mercury API handlers
   ipcMain.handle('mercury:fetchAccounts', async (_event, apiKey: string) => {
     try {
-      console.log('Fetching accounts')
       const url = 'https://api.mercury.com/api/v1/accounts'
 
       const response = await fetch(url, {
@@ -200,7 +203,6 @@ export function registerIpcHandlers(): void {
     'mercury:fetchTransactions',
     async (_event, apiKey: string, queryString?: string) => {
       try {
-        console.log('Fetching transactions with query:', queryString)
         const url = queryString
           ? `https://api.mercury.com/api/v1/transactions?${queryString}`
           : 'https://api.mercury.com/api/v1/transactions'
@@ -228,4 +230,48 @@ export function registerIpcHandlers(): void {
       }
     }
   )
+
+  // Company Ledger Record handlers
+  ipcMain.handle(
+    'companyLedger:set',
+    async (_event, companyId: number, key: string, value: string) => {
+      try {
+        setCompanyLedgerRecord(companyId, key, value)
+        return { success: true }
+      } catch (error) {
+        console.error('Set company ledger record error:', error)
+        return { success: false, error: 'Failed to set ledger record' }
+      }
+    }
+  )
+
+  ipcMain.handle('companyLedger:get', async (_event, companyId: number, key: string) => {
+    try {
+      const record = getCompanyLedgerRecord(companyId, key)
+      return { success: true, record }
+    } catch (error) {
+      console.error('Get company ledger record error:', error)
+      return { success: false, error: 'Failed to get ledger record' }
+    }
+  })
+
+  ipcMain.handle('companyLedger:getAll', async (_event, companyId: number) => {
+    try {
+      const records = getAllCompanyLedgerRecords(companyId)
+      return { success: true, records }
+    } catch (error) {
+      console.error('Get all company ledger records error:', error)
+      return { success: false, error: 'Failed to get ledger records' }
+    }
+  })
+
+  ipcMain.handle('companyLedger:delete', async (_event, companyId: number, key: string) => {
+    try {
+      deleteCompanyLedgerRecord(companyId, key)
+      return { success: true }
+    } catch (error) {
+      console.error('Delete company ledger record error:', error)
+      return { success: false, error: 'Failed to delete ledger record' }
+    }
+  })
 }
