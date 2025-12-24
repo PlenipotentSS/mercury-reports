@@ -1,5 +1,7 @@
 import type { Transaction } from '../types'
 
+const QUICKBOOKS_EXPORTABLE_STATUSES = ['sent', 'pending']
+
 const escapeCSV = (value: string): string => {
   if (value && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
     return `"${value.replace(/"/g, '""')}"`
@@ -70,6 +72,7 @@ export const downloadMercuryCSV = (
 }
 
 const isWithdrawalTransaction = (txn: Transaction): boolean => {
+  if (!QUICKBOOKS_EXPORTABLE_STATUSES.includes(txn.status)) return false
   if (txn.kind === "outgoingPayment") return true
   if (txn.kind === 'creditCardTransaction') return false
   if (txn.kind === "other" && txn.bankDescription?.includes('IO AUTOPAY') && txn.amount > 0) return false
@@ -77,6 +80,7 @@ const isWithdrawalTransaction = (txn: Transaction): boolean => {
 }
 
 const isDepositTransaction = (txn: Transaction): boolean => {
+  if (!QUICKBOOKS_EXPORTABLE_STATUSES.includes(txn.status)) return false
   if (txn.kind === "other" && txn.bankDescription?.includes('IO AUTOPAY') && txn.amount > 0) return false
   if (txn.kind === "outgoingPayment") return false
   if (txn.kind === 'creditCardTransaction') return false
@@ -84,13 +88,14 @@ const isDepositTransaction = (txn: Transaction): boolean => {
 }
 
 const isCreditCardTransaction = (txn: Transaction): boolean => {
+  if (!QUICKBOOKS_EXPORTABLE_STATUSES.includes(txn.status)) return false
   if (txn.kind === "other") return false
   if (txn.kind === "outgoingPayment") return false
   return txn.kind === 'creditCardTransaction'
 }
 
 const modifyGlCodeComma = (glCode?: string): string => {
-  return glCode?.includes('|') ? `${glCode?.split("|").join(",")}` : glCode
+  return glCode?.includes('|') ? `${glCode?.split("|").join(",")}` : `${glCode}`
 }
 
 export const downloadQuickBooksDeposits = (

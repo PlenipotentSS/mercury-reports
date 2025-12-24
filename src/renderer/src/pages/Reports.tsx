@@ -355,6 +355,13 @@ export default function Reports() {
           </div>
         </div>
 
+
+        { selectedTransactions.size > 0 && transactions.some((t) => selectedTransactions.has(t.id) && (t.status !== 'pending' && t.status !== 'sent')) && (
+          <div className="quickbooks-warning-notice">
+            <p>Note: Only pending & sent transactions will be included in QuickBooks exports.</p>
+          </div>
+        )}
+
         {showFilters && (
           <div className="filters-section">
             <div className="filter-group">
