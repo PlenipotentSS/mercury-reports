@@ -15,7 +15,7 @@ export default function Reports() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showFilters, setShowFilters] = useState(false)
+  const [showFilters, setShowFilters] = useState(true)
   const [selectedTransactions, setSelectedTransactions] = useState<Set<string>>(new Set())
   const [showActionsDropdown, setShowActionsDropdown] = useState(false)
   const [ledgerRecords, setLedgerRecords] = useState<{ [key: string]: string }>({})
