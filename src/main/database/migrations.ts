@@ -5,6 +5,7 @@ import { createReportsTable } from './migrations/002_create_reports_table'
 import { createApiKeysTable } from './migrations/003_create_api_keys_table'
 import { createCompaniesTable } from './migrations/004_create_companies_table'
 import * as createCompanyLedgerRecordsTable from './migrations/005_create_company_ledger_records_table'
+import log from 'electron-log'
 
 export interface Migration {
   id: number
@@ -57,28 +58,28 @@ function removeMigration(db: Database.Database, migrationId: number): void {
 export function runMigrations(): void {
   const db = getDatabase()
 
-  console.log('Starting database migrations...')
+  log.info('Starting database migrations...')
 
   // Create migrations tracking table
   createMigrationsTable(db)
 
   // Get list of applied migrations
   const appliedMigrations = getAppliedMigrations(db)
-  console.log(`Applied migrations: [${appliedMigrations.join(', ')}]`)
+  log.info(`Applied migrations: [${appliedMigrations.join(', ')}]`)
 
   // Find pending migrations
   const pendingMigrations = migrations.filter((m) => !appliedMigrations.includes(m.id))
 
   if (pendingMigrations.length === 0) {
-    console.log('No pending migrations')
+    log.info('No pending migrations')
     return
   }
 
-  console.log(`Found ${pendingMigrations.length} pending migration(s)`)
+  log.info(`Found ${pendingMigrations.length} pending migration(s)`)
 
   // Run each pending migration in a transaction
   for (const migration of pendingMigrations) {
-    console.log(`Running migration ${migration.id}: ${migration.name}`)
+    log.info(`Running migration ${migration.id}: ${migration.name}`)
 
     try {
       db.transaction(() => {
@@ -86,25 +87,25 @@ export function runMigrations(): void {
         recordMigration(db, migration)
       })()
 
-      console.log(`✓ Migration ${migration.id} completed successfully`)
+      log.info(`✓ Migration ${migration.id} completed successfully`)
     } catch (error) {
-      console.error(`✗ Migration ${migration.id} failed:`, error)
+      log.error(`✗ Migration ${migration.id} failed:`, error)
       throw error
     }
   }
 
-  console.log('All migrations completed successfully')
+  log.info('All migrations completed successfully')
 }
 
 export function rollbackMigration(targetId?: number): void {
   const db = getDatabase()
 
-  console.log('Starting migration rollback...')
+  log.info('Starting migration rollback...')
 
   const appliedMigrations = getAppliedMigrations(db)
 
   if (appliedMigrations.length === 0) {
-    console.log('No migrations to rollback')
+    log.info('No migrations to rollback')
     return
   }
 
@@ -117,16 +118,16 @@ export function rollbackMigration(targetId?: number): void {
     const migration = migrations.find((m) => m.id === migrationId)
 
     if (!migration) {
-      console.error(`Migration ${migrationId} not found`)
+      log.error(`Migration ${migrationId} not found`)
       continue
     }
 
     if (!migration.down) {
-      console.error(`Migration ${migrationId} has no down function`)
+      log.error(`Migration ${migrationId} has no down function`)
       continue
     }
 
-    console.log(`Rolling back migration ${migration.id}: ${migration.name}`)
+    log.info(`Rolling back migration ${migration.id}: ${migration.name}`)
 
     try {
       db.transaction(() => {
@@ -134,12 +135,12 @@ export function rollbackMigration(targetId?: number): void {
         removeMigration(db, migration.id)
       })()
 
-      console.log(`✓ Migration ${migration.id} rolled back successfully`)
+      log.info(`✓ Migration ${migration.id} rolled back successfully`)
     } catch (error) {
-      console.error(`✗ Rollback of migration ${migration.id} failed:`, error)
+      log.error(`✗ Rollback of migration ${migration.id} failed:`, error)
       throw error
     }
   }
 
-  console.log('Rollback completed successfully')
+  log.info('Rollback completed successfully')
 }

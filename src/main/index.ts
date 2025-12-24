@@ -5,6 +5,7 @@ import icon from '../../resources/icon.png?asset'
 import { runMigrations } from './database/migrations'
 import { closeDatabase } from './database'
 import { registerIpcHandlers } from './ipc-handlers'
+import log from 'electron-log'
 
 function createWindow(): void {
   // Create the browser window.
@@ -49,7 +50,7 @@ app.whenReady().then(() => {
   try {
     runMigrations()
   } catch (error) {
-    console.error('Failed to run database migrations:', error)
+    log.error('Failed to run database migrations:', error)
   }
 
   // Register IPC handlers for database operations
@@ -63,7 +64,7 @@ app.whenReady().then(() => {
   })
 
   // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
+  ipcMain.on('ping', () => log.info('pong'))
 
   createWindow()
 

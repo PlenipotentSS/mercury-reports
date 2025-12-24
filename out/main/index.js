@@ -3,20 +3,9 @@ const electron = require("electron");
 const path = require("path");
 const utils = require("@electron-toolkit/utils");
 const fs = require("fs");
+const log = require("electron-log");
+const DatabaseConstructor = require("better-sqlite3");
 const icon = path.join(__dirname, "../../resources/icon.png");
-let DatabaseConstructor;
-try {
-  const path2 = require("path");
-  const betterSqlite3Path = path2.join(
-    process.resourcesPath,
-    "app.asar.unpacked",
-    "node_modules",
-    "better-sqlite3"
-  );
-  DatabaseConstructor = require(betterSqlite3Path);
-} catch (error) {
-  DatabaseConstructor = require("better-sqlite3");
-}
 let db = null;
 function getDatabase() {
   if (!db) {
@@ -27,7 +16,7 @@ function getDatabase() {
     }
     db = new DatabaseConstructor(dbPath);
     db.pragma("journal_mode = WAL");
-    console.log(`Database initialized at: ${dbPath}`);
+    log.info(`Database initialized at: ${dbPath}`);
   }
   return db;
 }
@@ -35,7 +24,7 @@ function closeDatabase() {
   if (db) {
     db.close();
     db = null;
-    console.log("Database connection closed");
+    log.info("Database connection closed");
   }
 }
 const createUsersTable = {
@@ -197,30 +186,30 @@ function recordMigration(db2, migration) {
 }
 function runMigrations() {
   const db2 = getDatabase();
-  console.log("Starting database migrations...");
+  log.info("Starting database migrations...");
   createMigrationsTable(db2);
   const appliedMigrations = getAppliedMigrations(db2);
-  console.log(`Applied migrations: [${appliedMigrations.join(", ")}]`);
+  log.info(`Applied migrations: [${appliedMigrations.join(", ")}]`);
   const pendingMigrations = migrations.filter((m) => !appliedMigrations.includes(m.id));
   if (pendingMigrations.length === 0) {
-    console.log("No pending migrations");
+    log.info("No pending migrations");
     return;
   }
-  console.log(`Found ${pendingMigrations.length} pending migration(s)`);
+  log.info(`Found ${pendingMigrations.length} pending migration(s)`);
   for (const migration of pendingMigrations) {
-    console.log(`Running migration ${migration.id}: ${migration.name}`);
+    log.info(`Running migration ${migration.id}: ${migration.name}`);
     try {
       db2.transaction(() => {
         migration.up(db2);
         recordMigration(db2, migration);
       })();
-      console.log(`✓ Migration ${migration.id} completed successfully`);
+      log.info(`✓ Migration ${migration.id} completed successfully`);
     } catch (error) {
-      console.error(`✗ Migration ${migration.id} failed:`, error);
+      log.error(`✗ Migration ${migration.id} failed:`, error);
       throw error;
     }
   }
-  console.log("All migrations completed successfully");
+  log.info("All migrations completed successfully");
 }
 function createUser(name, email) {
   const db2 = getDatabase();
@@ -346,7 +335,7 @@ function registerIpcHandlers() {
       const user = getUserByEmail(email);
       return { success: true, user };
     } catch (error) {
-      console.error("Login error:", error);
+      log.error("Login error:", error);
       return { success: false, error: "Failed to login" };
     }
   });
@@ -360,7 +349,7 @@ function registerIpcHandlers() {
       const user = { id: userId, name, email, created_at: (/* @__PURE__ */ new Date()).toISOString() };
       return { success: true, user };
     } catch (error) {
-      console.error("Signup error:", error);
+      log.error("Signup error:", error);
       return { success: false, error: "Failed to create user" };
     }
   });
@@ -369,7 +358,7 @@ function registerIpcHandlers() {
       const users = getAllUsers();
       return { success: true, users };
     } catch (error) {
-      console.error("Get users error:", error);
+      log.error("Get users error:", error);
       return { success: false, error: "Failed to get users" };
     }
   });
@@ -378,7 +367,7 @@ function registerIpcHandlers() {
       const apiKeyId = createApiKey(userId, apiKey, keyName);
       return { success: true, apiKeyId };
     } catch (error) {
-      console.error("Create API key error:", error);
+      log.error("Create API key error:", error);
       return { success: false, error: "Failed to create API key" };
     }
   });
@@ -387,7 +376,7 @@ function registerIpcHandlers() {
       const apiKey = getActiveApiKey(userId);
       return { success: true, apiKey };
     } catch (error) {
-      console.error("Get active API key error:", error);
+      log.error("Get active API key error:", error);
       return { success: false, error: "Failed to get API key" };
     }
   });
@@ -396,7 +385,7 @@ function registerIpcHandlers() {
       const apiKeys = getApiKeysByUserId(userId, activeOnly);
       return { success: true, apiKeys };
     } catch (error) {
-      console.error("Get API keys error:", error);
+      log.error("Get API keys error:", error);
       return { success: false, error: "Failed to get API keys" };
     }
   });
@@ -405,7 +394,7 @@ function registerIpcHandlers() {
       updateApiKey(id, apiKey, keyName);
       return { success: true };
     } catch (error) {
-      console.error("Update API key error:", error);
+      log.error("Update API key error:", error);
       return { success: false, error: "Failed to update API key" };
     }
   });
@@ -414,7 +403,7 @@ function registerIpcHandlers() {
       deactivateApiKey(id);
       return { success: true };
     } catch (error) {
-      console.error("Deactivate API key error:", error);
+      log.error("Deactivate API key error:", error);
       return { success: false, error: "Failed to deactivate API key" };
     }
   });
@@ -423,7 +412,7 @@ function registerIpcHandlers() {
       const companyId = createCompany(userId, name, apiKey);
       return { success: true, companyId };
     } catch (error) {
-      console.error("Create company error:", error);
+      log.error("Create company error:", error);
       return { success: false, error: "Failed to create company" };
     }
   });
@@ -432,7 +421,7 @@ function registerIpcHandlers() {
       const company = getCompanyById(id);
       return { success: true, company };
     } catch (error) {
-      console.error("Get company error:", error);
+      log.error("Get company error:", error);
       return { success: false, error: "Failed to get company" };
     }
   });
@@ -441,7 +430,7 @@ function registerIpcHandlers() {
       const companies = getCompaniesByUserId(userId, activeOnly);
       return { success: true, companies };
     } catch (error) {
-      console.error("Get companies error:", error);
+      log.error("Get companies error:", error);
       return { success: false, error: "Failed to get companies" };
     }
   });
@@ -450,7 +439,7 @@ function registerIpcHandlers() {
       updateCompany(id, name, apiKey);
       return { success: true };
     } catch (error) {
-      console.error("Update company error:", error);
+      log.error("Update company error:", error);
       return { success: false, error: "Failed to update company" };
     }
   });
@@ -459,7 +448,7 @@ function registerIpcHandlers() {
       deactivateCompany(id);
       return { success: true };
     } catch (error) {
-      console.error("Deactivate company error:", error);
+      log.error("Deactivate company error:", error);
       return { success: false, error: "Failed to deactivate company" };
     }
   });
@@ -468,7 +457,7 @@ function registerIpcHandlers() {
       updateCompanyLastUsed(id);
       return { success: true };
     } catch (error) {
-      console.error("Update company last used error:", error);
+      log.error("Update company last used error:", error);
       return { success: false, error: "Failed to update company last used" };
     }
   });
@@ -488,7 +477,7 @@ function registerIpcHandlers() {
       const data = await response.json();
       return { success: true, data };
     } catch (error) {
-      console.error("Fetch accounts error:", error);
+      log.error("Fetch accounts error:", error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to fetch accounts"
@@ -513,7 +502,7 @@ function registerIpcHandlers() {
         const data = await response.json();
         return { success: true, data };
       } catch (error) {
-        console.error("Fetch transactions error:", error);
+        log.error("Fetch transactions error:", error);
         return {
           success: false,
           error: error instanceof Error ? error.message : "Failed to fetch transactions"
@@ -528,7 +517,7 @@ function registerIpcHandlers() {
         setCompanyLedgerRecord(companyId, key, value);
         return { success: true };
       } catch (error) {
-        console.error("Set company ledger record error:", error);
+        log.error("Set company ledger record error:", error);
         return { success: false, error: "Failed to set ledger record" };
       }
     }
@@ -538,7 +527,7 @@ function registerIpcHandlers() {
       const record = getCompanyLedgerRecord(companyId, key);
       return { success: true, record };
     } catch (error) {
-      console.error("Get company ledger record error:", error);
+      log.error("Get company ledger record error:", error);
       return { success: false, error: "Failed to get ledger record" };
     }
   });
@@ -547,7 +536,7 @@ function registerIpcHandlers() {
       const records = getAllCompanyLedgerRecords(companyId);
       return { success: true, records };
     } catch (error) {
-      console.error("Get all company ledger records error:", error);
+      log.error("Get all company ledger records error:", error);
       return { success: false, error: "Failed to get ledger records" };
     }
   });
@@ -556,7 +545,7 @@ function registerIpcHandlers() {
       deleteCompanyLedgerRecord(companyId, key);
       return { success: true };
     } catch (error) {
-      console.error("Delete company ledger record error:", error);
+      log.error("Delete company ledger record error:", error);
       return { success: false, error: "Failed to delete ledger record" };
     }
   });
@@ -591,13 +580,13 @@ electron.app.whenReady().then(() => {
   try {
     runMigrations();
   } catch (error) {
-    console.error("Failed to run database migrations:", error);
+    log.error("Failed to run database migrations:", error);
   }
   registerIpcHandlers();
   electron.app.on("browser-window-created", (_, window) => {
     utils.optimizer.watchWindowShortcuts(window);
   });
-  electron.ipcMain.on("ping", () => console.log("pong"));
+  electron.ipcMain.on("ping", () => log.info("pong"));
   createWindow();
   electron.app.on("activate", function() {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();

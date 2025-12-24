@@ -19,6 +19,7 @@ import {
   getAllCompanyLedgerRecords,
   deleteCompanyLedgerRecord
 } from './database/queries'
+import log from 'electron-log'
 
 export function registerIpcHandlers(): void {
   // User authentication handlers
@@ -27,7 +28,7 @@ export function registerIpcHandlers(): void {
       const user = getUserByEmail(email)
       return { success: true, user }
     } catch (error) {
-      console.error('Login error:', error)
+      log.error('Login error:', error)
       return { success: false, error: 'Failed to login' }
     }
   })
@@ -44,7 +45,7 @@ export function registerIpcHandlers(): void {
       const user = { id: userId, name, email, created_at: new Date().toISOString() }
       return { success: true, user }
     } catch (error) {
-      console.error('Signup error:', error)
+      log.error('Signup error:', error)
       return { success: false, error: 'Failed to create user' }
     }
   })
@@ -54,7 +55,7 @@ export function registerIpcHandlers(): void {
       const users = getAllUsers()
       return { success: true, users }
     } catch (error) {
-      console.error('Get users error:', error)
+      log.error('Get users error:', error)
       return { success: false, error: 'Failed to get users' }
     }
   })
@@ -65,7 +66,7 @@ export function registerIpcHandlers(): void {
       const apiKeyId = createApiKey(userId, apiKey, keyName)
       return { success: true, apiKeyId }
     } catch (error) {
-      console.error('Create API key error:', error)
+      log.error('Create API key error:', error)
       return { success: false, error: 'Failed to create API key' }
     }
   })
@@ -75,7 +76,7 @@ export function registerIpcHandlers(): void {
       const apiKey = getActiveApiKey(userId)
       return { success: true, apiKey }
     } catch (error) {
-      console.error('Get active API key error:', error)
+      log.error('Get active API key error:', error)
       return { success: false, error: 'Failed to get API key' }
     }
   })
@@ -85,7 +86,7 @@ export function registerIpcHandlers(): void {
       const apiKeys = getApiKeysByUserId(userId, activeOnly)
       return { success: true, apiKeys }
     } catch (error) {
-      console.error('Get API keys error:', error)
+      log.error('Get API keys error:', error)
       return { success: false, error: 'Failed to get API keys' }
     }
   })
@@ -95,7 +96,7 @@ export function registerIpcHandlers(): void {
       updateApiKey(id, apiKey, keyName)
       return { success: true }
     } catch (error) {
-      console.error('Update API key error:', error)
+      log.error('Update API key error:', error)
       return { success: false, error: 'Failed to update API key' }
     }
   })
@@ -105,7 +106,7 @@ export function registerIpcHandlers(): void {
       deactivateApiKey(id)
       return { success: true }
     } catch (error) {
-      console.error('Deactivate API key error:', error)
+      log.error('Deactivate API key error:', error)
       return { success: false, error: 'Failed to deactivate API key' }
     }
   })
@@ -116,7 +117,7 @@ export function registerIpcHandlers(): void {
       const companyId = createCompany(userId, name, apiKey)
       return { success: true, companyId }
     } catch (error) {
-      console.error('Create company error:', error)
+      log.error('Create company error:', error)
       return { success: false, error: 'Failed to create company' }
     }
   })
@@ -126,7 +127,7 @@ export function registerIpcHandlers(): void {
       const company = getCompanyById(id)
       return { success: true, company }
     } catch (error) {
-      console.error('Get company error:', error)
+      log.error('Get company error:', error)
       return { success: false, error: 'Failed to get company' }
     }
   })
@@ -136,7 +137,7 @@ export function registerIpcHandlers(): void {
       const companies = getCompaniesByUserId(userId, activeOnly)
       return { success: true, companies }
     } catch (error) {
-      console.error('Get companies error:', error)
+      log.error('Get companies error:', error)
       return { success: false, error: 'Failed to get companies' }
     }
   })
@@ -146,7 +147,7 @@ export function registerIpcHandlers(): void {
       updateCompany(id, name, apiKey)
       return { success: true }
     } catch (error) {
-      console.error('Update company error:', error)
+      log.error('Update company error:', error)
       return { success: false, error: 'Failed to update company' }
     }
   })
@@ -156,7 +157,7 @@ export function registerIpcHandlers(): void {
       deactivateCompany(id)
       return { success: true }
     } catch (error) {
-      console.error('Deactivate company error:', error)
+      log.error('Deactivate company error:', error)
       return { success: false, error: 'Failed to deactivate company' }
     }
   })
@@ -166,7 +167,7 @@ export function registerIpcHandlers(): void {
       updateCompanyLastUsed(id)
       return { success: true }
     } catch (error) {
-      console.error('Update company last used error:', error)
+      log.error('Update company last used error:', error)
       return { success: false, error: 'Failed to update company last used' }
     }
   })
@@ -191,7 +192,7 @@ export function registerIpcHandlers(): void {
       const data = await response.json()
       return { success: true, data }
     } catch (error) {
-      console.error('Fetch accounts error:', error)
+      log.error('Fetch accounts error:', error)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to fetch accounts'
@@ -222,7 +223,7 @@ export function registerIpcHandlers(): void {
         const data = await response.json()
         return { success: true, data }
       } catch (error) {
-        console.error('Fetch transactions error:', error)
+        log.error('Fetch transactions error:', error)
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Failed to fetch transactions'
@@ -239,7 +240,7 @@ export function registerIpcHandlers(): void {
         setCompanyLedgerRecord(companyId, key, value)
         return { success: true }
       } catch (error) {
-        console.error('Set company ledger record error:', error)
+        log.error('Set company ledger record error:', error)
         return { success: false, error: 'Failed to set ledger record' }
       }
     }
@@ -250,7 +251,7 @@ export function registerIpcHandlers(): void {
       const record = getCompanyLedgerRecord(companyId, key)
       return { success: true, record }
     } catch (error) {
-      console.error('Get company ledger record error:', error)
+      log.error('Get company ledger record error:', error)
       return { success: false, error: 'Failed to get ledger record' }
     }
   })
@@ -260,7 +261,7 @@ export function registerIpcHandlers(): void {
       const records = getAllCompanyLedgerRecords(companyId)
       return { success: true, records }
     } catch (error) {
-      console.error('Get all company ledger records error:', error)
+      log.error('Get all company ledger records error:', error)
       return { success: false, error: 'Failed to get ledger records' }
     }
   })
@@ -270,7 +271,7 @@ export function registerIpcHandlers(): void {
       deleteCompanyLedgerRecord(companyId, key)
       return { success: true }
     } catch (error) {
-      console.error('Delete company ledger record error:', error)
+      log.error('Delete company ledger record error:', error)
       return { success: false, error: 'Failed to delete ledger record' }
     }
   })
