@@ -12733,6 +12733,7 @@ function Home() {
     ] }, company.id)) }) })
   ] });
 }
+const QUICKBOOKS_EXPORTABLE_STATUSES = ["sent", "pending"];
 const escapeCSV = (value) => {
   if (value && (value.includes(",") || value.includes('"') || value.includes("\n"))) {
     return `"${value.replace(/"/g, '""')}"`;
@@ -12793,24 +12794,27 @@ const downloadMercuryCSV = (transactions, selectedTransactionIds) => {
   downloadCSVFile(csvContent, "mercury-transactions");
 };
 const isWithdrawalTransaction = (txn) => {
+  if (!QUICKBOOKS_EXPORTABLE_STATUSES.includes(txn.status)) return false;
   if (txn.kind === "outgoingPayment") return true;
   if (txn.kind === "creditCardTransaction") return false;
   if (txn.kind === "other" && txn.bankDescription?.includes("IO AUTOPAY") && txn.amount > 0) return false;
   return txn.amount < 0;
 };
 const isDepositTransaction = (txn) => {
+  if (!QUICKBOOKS_EXPORTABLE_STATUSES.includes(txn.status)) return false;
   if (txn.kind === "other" && txn.bankDescription?.includes("IO AUTOPAY") && txn.amount > 0) return false;
   if (txn.kind === "outgoingPayment") return false;
   if (txn.kind === "creditCardTransaction") return false;
   return txn.amount > 0;
 };
 const isCreditCardTransaction = (txn) => {
+  if (!QUICKBOOKS_EXPORTABLE_STATUSES.includes(txn.status)) return false;
   if (txn.kind === "other") return false;
   if (txn.kind === "outgoingPayment") return false;
   return txn.kind === "creditCardTransaction";
 };
 const modifyGlCodeComma = (glCode) => {
-  return glCode?.includes("|") ? `${glCode?.split("|").join(",")}` : glCode;
+  return glCode?.includes("|") ? `${glCode?.split("|").join(",")}` : `${glCode}`;
 };
 const downloadQuickBooksDeposits = (transactions, selectedTransactionIds, _, glNameMercuryChecking) => {
   const selectedTxns = transactions.filter(
@@ -13017,7 +13021,7 @@ function Reports() {
   const [transactions, setTransactions] = reactExports.useState([]);
   const [isLoading, setIsLoading] = reactExports.useState(true);
   const [error, setError] = reactExports.useState(null);
-  const [showFilters, setShowFilters] = reactExports.useState(false);
+  const [showFilters, setShowFilters] = reactExports.useState(true);
   const [selectedTransactions, setSelectedTransactions] = reactExports.useState(/* @__PURE__ */ new Set());
   const [showActionsDropdown, setShowActionsDropdown] = reactExports.useState(false);
   const [ledgerRecords, setLedgerRecords] = reactExports.useState({});
@@ -13276,6 +13280,7 @@ function Reports() {
           /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: fetchTransactions, className: "refresh-button", children: "Refresh" })
         ] })
       ] }),
+      selectedTransactions.size > 0 && transactions.some((t) => selectedTransactions.has(t.id) && (t.status !== "pending" && t.status !== "sent")) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "quickbooks-warning-notice", children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "Note: Only pending & sent transactions will be included in QuickBooks exports." }) }),
       showFilters && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "filters-section", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "filter-group", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "start-date", children: "Start Date" }),

@@ -255,7 +255,7 @@ export const downloadQuickBooksCreditCard = (
       new Date(txn.createdAt).toLocaleDateString('en-US'), // Date
       expenseAccount, // Expense Account
       Math.abs(txn.amount).toString(), // Expense Amount
-      '', // Expense Customer:Job
+      txn.mercuryCategory, // Expense Customer:Job
       '', // Expense Billable
       '', // Expense Class
       '', // Item

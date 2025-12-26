@@ -1195,3 +1195,21 @@ code {
 .dropdown-item:disabled {
   cursor: not-allowed;
 }
+
+/* QuickBooks Export Warning */
+
+.quickbooks-warning-notice {
+  background-color: #fee;
+  border: 2px solid #ed0707ff;
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 12px;
+  margin-bottom: 12px;
+}
+
+.quickbooks-warning-notice p {
+  margin: 0;
+  color: #ed0707ff;
+  font-size: 13px;
+  font-weight: 600;
+}
