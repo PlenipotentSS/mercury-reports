@@ -38,6 +38,15 @@ interface CompanyLedgerRecord {
   updated_at: string
 }
 
+interface LedgerPreset {
+  id: number
+  key: string
+  label: string
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
 interface API {
   // User authentication
   userLogin: (email: string) => Promise<{ success: boolean; user?: User; error?: string }>
@@ -46,6 +55,11 @@ interface API {
     email: string
   ) => Promise<{ success: boolean; user?: User; error?: string }>
   userGetAll: () => Promise<{ success: boolean; users?: User[]; error?: string }>
+  userUpdate: (
+    id: number,
+    name: string,
+    email: string
+  ) => Promise<{ success: boolean; user?: User; error?: string }>
 
   // API Key management
   apiKeyCreate: (
@@ -110,6 +124,27 @@ interface API {
     companyId: number,
     key: string
   ) => Promise<{ success: boolean; error?: string }>
+
+  // Ledger Presets
+  ledgerPresetCreate: (
+    key: string,
+    label: string,
+    description?: string
+  ) => Promise<{ success: boolean; id?: number; error?: string }>
+  ledgerPresetGetById: (
+    id: number
+  ) => Promise<{ success: boolean; preset?: LedgerPreset; error?: string }>
+  ledgerPresetGetByKey: (
+    key: string
+  ) => Promise<{ success: boolean; preset?: LedgerPreset; error?: string }>
+  ledgerPresetGetAll: () => Promise<{ success: boolean; presets?: LedgerPreset[]; error?: string }>
+  ledgerPresetUpdate: (
+    id: number,
+    key: string,
+    label: string,
+    description?: string
+  ) => Promise<{ success: boolean; error?: string }>
+  ledgerPresetDelete: (id: number) => Promise<{ success: boolean; error?: string }>
 }
 
 declare global {

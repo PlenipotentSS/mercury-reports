@@ -12486,11 +12486,27 @@ function AuthProvider({ children }) {
       return { success: false, error: "An error occurred during signup" };
     }
   };
+  const updateUser = async (name, email) => {
+    if (!user) {
+      return { success: false, error: "No user logged in" };
+    }
+    try {
+      const result = await window.api.userUpdate(user.id, name, email);
+      if (result.success && result.user) {
+        setUser(result.user);
+        localStorage.setItem("user", JSON.stringify(result.user));
+        return { success: true };
+      }
+      return { success: false, error: result.error || "Update failed" };
+    } catch (error) {
+      return { success: false, error: "An error occurred during update" };
+    }
+  };
   const logout = () => {
     setUser(null);
     localStorage.removeItem("user");
   };
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(AuthContext.Provider, { value: { user, login, signup, logout, isLoading }, children });
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(AuthContext.Provider, { value: { user, login, signup, updateUser, logout, isLoading }, children });
 }
 function useAuth() {
   const context = reactExports.useContext(AuthContext);
@@ -12852,7 +12868,7 @@ const downloadQuickBooksDeposits = (transactions, selectedTransactionIds, _, glN
     // Line Memo
     "",
     // Check No.
-    txn.kind || "",
+    "Cash",
     // Payment Method
     "",
     // Class
@@ -12912,7 +12928,7 @@ const downloadQuickBooksChecks = (transactions, selectedTransactionIds, glNameMe
       // Date
       Math.abs(txn.amount).toString(),
       // Total Amount
-      `${txn.bankDescription || ""} - ${txn.categoryData?.name || ""}` || "",
+      `${txn.bankDescription || ""} - ${txn.mercuryCategory || ""}` || "",
       // Memo
       expenseAccount,
       // Expense Account
@@ -12920,7 +12936,7 @@ const downloadQuickBooksChecks = (transactions, selectedTransactionIds, glNameMe
       // Expense Amount
       txn.bankDescription || "",
       // Expense Memo
-      "",
+      `${txn.categoryData?.name}`,
       // Expense Customer:Job
       "",
       // Expense Billable
@@ -12987,7 +13003,7 @@ const downloadQuickBooksCreditCard = (transactions, selectedTransactionIds, glNa
       // Expense Account
       Math.abs(txn.amount).toString(),
       // Expense Amount
-      "",
+      `${txn.categoryData?.name}`,
       // Expense Customer:Job
       "",
       // Expense Billable
@@ -12995,7 +13011,7 @@ const downloadQuickBooksCreditCard = (transactions, selectedTransactionIds, glNa
       // Expense Class
       "",
       // Item
-      "",
+      `${txn.mercuryCategory}`,
       // Item Description
       "",
       // Item Qty.
@@ -13463,12 +13479,8 @@ function Reports() {
     ] })
   ] });
 }
-const LEDGER_PRESETS = [
-  { key: "gl_name_mercury_checking", label: "GL Name Mercury Checking" },
-  { key: "gl_name_mercury_credit_card", label: "GL Name Mercury Credit Card" }
-];
 function Settings() {
-  const { user } = useAuth();
+  const { user, updateUser: updateUserContext } = useAuth();
   const [companyName, setCompanyName] = reactExports.useState("");
   const [apiKey, setApiKey] = reactExports.useState("");
   const [companies, setCompanies] = reactExports.useState([]);
@@ -13480,8 +13492,20 @@ function Settings() {
   const [ledgerCompany, setLedgerCompany] = reactExports.useState(null);
   const [ledgerRecords, setLedgerRecords] = reactExports.useState({});
   const [ledgerMessage, setLedgerMessage] = reactExports.useState(null);
+  const [ledgerPresets, setLedgerPresets] = reactExports.useState([]);
+  const [editingPreset, setEditingPreset] = reactExports.useState(null);
+  const [presetKey, setPresetKey] = reactExports.useState("");
+  const [presetLabel, setPresetLabel] = reactExports.useState("");
+  const [presetDescription, setPresetDescription] = reactExports.useState("");
+  const [presetMessage, setPresetMessage] = reactExports.useState(null);
+  const [activeSection, setActiveSection] = reactExports.useState("companies");
+  const [isEditingAccount, setIsEditingAccount] = reactExports.useState(false);
+  const [accountName, setAccountName] = reactExports.useState("");
+  const [accountEmail, setAccountEmail] = reactExports.useState("");
+  const [accountMessage, setAccountMessage] = reactExports.useState(null);
   reactExports.useEffect(() => {
     loadCompanies();
+    loadLedgerPresets();
   }, [user]);
   reactExports.useEffect(() => {
     if (ledgerCompany) {
@@ -13497,6 +13521,16 @@ function Settings() {
       }
     } catch (error) {
       console.error("Failed to load companies:", error);
+    }
+  };
+  const loadLedgerPresets = async () => {
+    try {
+      const result = await window.api.ledgerPresetGetAll();
+      if (result.success && result.presets) {
+        setLedgerPresets(result.presets);
+      }
+    } catch (error) {
+      console.error("Failed to load ledger presets:", error);
     }
   };
   const handleSubmit = async (e) => {
@@ -13592,7 +13626,7 @@ function Settings() {
     setIsLoading(true);
     setLedgerMessage(null);
     try {
-      for (const preset of LEDGER_PRESETS) {
+      for (const preset of ledgerPresets) {
         const value = ledgerRecords[preset.key] || "";
         await window.api.companyLedgerSet(ledgerCompany.id, preset.key, value);
       }
@@ -13603,187 +13637,494 @@ function Settings() {
       setIsLoading(false);
     }
   };
+  const handlePresetSubmit = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setPresetMessage(null);
+    try {
+      if (editingPreset) {
+        const result = await window.api.ledgerPresetUpdate(
+          editingPreset.id,
+          presetKey,
+          presetLabel,
+          presetDescription
+        );
+        if (result.success) {
+          setPresetMessage({ type: "success", text: "Preset updated successfully!" });
+          await loadLedgerPresets();
+          resetPresetForm();
+        } else {
+          setPresetMessage({ type: "error", text: result.error || "Failed to update preset" });
+        }
+      } else {
+        const result = await window.api.ledgerPresetCreate(presetKey, presetLabel, presetDescription);
+        if (result.success) {
+          setPresetMessage({ type: "success", text: "Preset created successfully!" });
+          await loadLedgerPresets();
+          resetPresetForm();
+        } else {
+          setPresetMessage({ type: "error", text: result.error || "Failed to create preset" });
+        }
+      }
+    } catch (error) {
+      setPresetMessage({ type: "error", text: "An unexpected error occurred" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  const handleEditPreset = (preset) => {
+    setEditingPreset(preset);
+    setPresetKey(preset.key);
+    setPresetLabel(preset.label);
+    setPresetDescription(preset.description || "");
+    setPresetMessage(null);
+  };
+  const handleDeletePreset = async (preset) => {
+    if (!confirm(`Are you sure you want to delete the preset "${preset.label}"?`)) return;
+    setIsLoading(true);
+    try {
+      const result = await window.api.ledgerPresetDelete(preset.id);
+      if (result.success) {
+        setPresetMessage({ type: "success", text: "Preset deleted successfully!" });
+        await loadLedgerPresets();
+        if (editingPreset?.id === preset.id) {
+          resetPresetForm();
+        }
+      } else {
+        setPresetMessage({ type: "error", text: result.error || "Failed to delete preset" });
+      }
+    } catch (error) {
+      setPresetMessage({ type: "error", text: "An unexpected error occurred" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  const resetPresetForm = () => {
+    setPresetKey("");
+    setPresetLabel("");
+    setPresetDescription("");
+    setEditingPreset(null);
+  };
+  const handleEditAccount = () => {
+    if (user) {
+      setAccountName(user.name);
+      setAccountEmail(user.email);
+      setIsEditingAccount(true);
+      setAccountMessage(null);
+    }
+  };
+  const handleCancelAccountEdit = () => {
+    setIsEditingAccount(false);
+    setAccountName("");
+    setAccountEmail("");
+    setAccountMessage(null);
+  };
+  const handleAccountSubmit = async (e) => {
+    e.preventDefault();
+    if (!user) return;
+    setIsLoading(true);
+    setAccountMessage(null);
+    try {
+      const result = await updateUserContext(accountName, accountEmail);
+      if (result.success) {
+        setAccountMessage({ type: "success", text: "Account updated successfully!" });
+        setIsEditingAccount(false);
+        setAccountName("");
+        setAccountEmail("");
+      } else {
+        setAccountMessage({ type: "error", text: result.error || "Failed to update account" });
+      }
+    } catch (error) {
+      setAccountMessage({ type: "error", text: "An unexpected error occurred" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "page-title", children: "Settings" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-content", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-section", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "section-title", children: "Mercury Companies" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "section-description", children: "Manage your Mercury companies and API keys. Each company can have its own API key for accessing Mercury transaction data." }),
-        companies.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "companies-list", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: { marginTop: 0, marginBottom: "16px", fontSize: "16px", color: "#2d3748" }, children: "Active Companies" }),
-          companies.map((company) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "current-key-info", style: { marginBottom: "16px" }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Company Name:" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: company.name })
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-layout", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { className: "settings-sidebar", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("nav", { className: "settings-nav", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `settings-nav-item ${activeSection === "companies" ? "active" : ""}`,
+            onClick: () => setActiveSection("companies"),
+            children: "Companies & API Keys"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `settings-nav-item ${activeSection === "presets" ? "active" : ""}`,
+            onClick: () => setActiveSection("presets"),
+            children: "Ledger Presets"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `settings-nav-item ${activeSection === "account" ? "active" : ""}`,
+            onClick: () => setActiveSection("account"),
+            children: "Account Information"
+          }
+        )
+      ] }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-main", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-content", children: [
+        activeSection === "companies" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-section", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "section-title", children: "Mercury Companies" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "section-description", children: "Manage your Mercury companies and API keys. Each company can have its own API key for accessing Mercury transaction data." }),
+            companies.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "companies-list", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: { marginTop: 0, marginBottom: "16px", fontSize: "16px", color: "#2d3748" }, children: "Active Companies" }),
+              companies.map((company) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "current-key-info", style: { marginBottom: "16px" }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Company Name:" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: company.name })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "API Key:" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "info-value", children: [
+                    showKey[company.id] ? company.api_key : maskApiKey(company.api_key),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "button",
+                      {
+                        className: "toggle-visibility-button",
+                        onClick: () => toggleShowKey(company.id),
+                        type: "button",
+                        children: showKey[company.id] ? "Hide" : "Show"
+                      }
+                    )
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Created:" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: new Date(company.created_at).toLocaleDateString() })
+                ] }),
+                company.last_used_at && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Last Used:" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: new Date(company.last_used_at).toLocaleDateString() })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", style: { borderBottom: "none", paddingTop: "12px" }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "button",
+                    {
+                      type: "button",
+                      className: "toggle-visibility-button",
+                      onClick: () => handleEdit(company),
+                      disabled: isLoading,
+                      style: { marginRight: "8px" },
+                      children: "Edit"
+                    }
+                  ),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "button",
+                    {
+                      type: "button",
+                      className: "deactivate-button",
+                      onClick: () => handleDeactivate(company),
+                      disabled: isLoading,
+                      style: { flex: "none", padding: "4px 12px", fontSize: "12px" },
+                      children: "Deactivate"
+                    }
+                  )
+                ] })
+              ] }, company.id))
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "API Key:" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "info-value", children: [
-                showKey[company.id] ? company.api_key : maskApiKey(company.api_key),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { onSubmit: handleSubmit, className: "settings-form", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: { marginTop: "20px", marginBottom: "16px", fontSize: "16px", color: "#2d3748" }, children: isEditing ? "Edit Company" : "Add New Company" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "companyName", children: "Company Name" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "input",
+                  {
+                    type: "text",
+                    id: "companyName",
+                    value: companyName,
+                    onChange: (e) => setCompanyName(e.target.value),
+                    placeholder: "e.g., Acme Corporation",
+                    required: true,
+                    disabled: isLoading
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "apiKey", children: isEditing ? "New API Key (leave empty to keep current)" : "Mercury API Key" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "input",
+                  {
+                    type: "password",
+                    id: "apiKey",
+                    value: apiKey,
+                    onChange: (e) => setApiKey(e.target.value),
+                    placeholder: "Enter Mercury API key",
+                    required: !isEditing,
+                    disabled: isLoading
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "form-help", children: "Your API key is stored securely in a local encrypted database." })
+              ] }),
+              message && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `message ${message.type}`, children: message.text }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "button-group", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", className: "submit-button", disabled: isLoading, children: isLoading ? "Saving..." : isEditing ? "Update Company" : "Add Company" }),
+                isEditing && /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "button",
+                  {
+                    type: "button",
+                    className: "deactivate-button",
+                    onClick: resetForm,
+                    disabled: isLoading,
+                    children: "Cancel"
+                  }
+                )
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-section", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "section-title", children: "Company Ledger Configuration" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "section-description", children: "Configure general ledger names for each company. These settings are used when exporting to QuickBooks CSV format." }),
+            companies.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "ledgerCompanySelect", children: "Select Company" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                  "select",
+                  {
+                    id: "ledgerCompanySelect",
+                    value: ledgerCompany?.id || "",
+                    onChange: (e) => {
+                      const company = companies.find((c) => c.id === Number(e.target.value));
+                      setLedgerCompany(company || null);
+                    },
+                    className: "filter-input",
+                    style: { width: "100%" },
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "-- Select a company --" }),
+                      companies.map((company) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: company.id, children: company.name }, company.id))
+                    ]
+                  }
+                )
+              ] }),
+              ledgerCompany && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                ledgerPresets.map((preset) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { htmlFor: preset.key, children: [
+                    preset.label,
+                    preset.description && /* @__PURE__ */ jsxRuntimeExports.jsx("small", { style: { display: "block", fontWeight: "normal", color: "#718096", marginTop: "4px" }, children: preset.description })
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "input",
+                    {
+                      type: "text",
+                      id: preset.key,
+                      value: ledgerRecords[preset.key] || "",
+                      onChange: (e) => handleLedgerRecordChange(preset.key, e.target.value),
+                      placeholder: `Enter ${preset.label.toLowerCase()}`,
+                      disabled: isLoading
+                    }
+                  )
+                ] }, preset.key)),
+                ledgerMessage && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `message ${ledgerMessage.type}`, children: ledgerMessage.text }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(
                   "button",
                   {
-                    className: "toggle-visibility-button",
-                    onClick: () => toggleShowKey(company.id),
                     type: "button",
-                    children: showKey[company.id] ? "Hide" : "Show"
+                    className: "submit-button",
+                    onClick: handleSaveLedgerRecords,
+                    disabled: isLoading,
+                    style: { marginTop: "12px" },
+                    children: isLoading ? "Saving..." : "Save Ledger Settings"
                   }
                 )
               ] })
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Created:" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: new Date(company.created_at).toLocaleDateString() })
-            ] }),
-            company.last_used_at && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Last Used:" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: new Date(company.last_used_at).toLocaleDateString() })
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", style: { borderBottom: "none", paddingTop: "12px" }, children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "button",
-                {
-                  type: "button",
-                  className: "toggle-visibility-button",
-                  onClick: () => handleEdit(company),
-                  disabled: isLoading,
-                  style: { marginRight: "8px" },
-                  children: "Edit"
-                }
-              ),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "button",
-                {
-                  type: "button",
-                  className: "deactivate-button",
-                  onClick: () => handleDeactivate(company),
-                  disabled: isLoading,
-                  style: { flex: "none", padding: "4px 12px", fontSize: "12px" },
-                  children: "Deactivate"
-                }
-              )
-            ] })
-          ] }, company.id))
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { onSubmit: handleSubmit, className: "settings-form", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: { marginTop: "20px", marginBottom: "16px", fontSize: "16px", color: "#2d3748" }, children: isEditing ? "Edit Company" : "Add New Company" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "companyName", children: "Company Name" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "input",
-              {
-                type: "text",
-                id: "companyName",
-                value: companyName,
-                onChange: (e) => setCompanyName(e.target.value),
-                placeholder: "e.g., Acme Corporation",
-                required: true,
-                disabled: isLoading
-              }
-            )
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "apiKey", children: isEditing ? "New API Key (leave empty to keep current)" : "Mercury API Key" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "input",
-              {
-                type: "password",
-                id: "apiKey",
-                value: apiKey,
-                onChange: (e) => setApiKey(e.target.value),
-                placeholder: "Enter Mercury API key",
-                required: !isEditing,
-                disabled: isLoading
-              }
-            ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "form-help", children: "Your API key is stored securely in a local encrypted database." })
-          ] }),
-          message && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `message ${message.type}`, children: message.text }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "button-group", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", className: "submit-button", disabled: isLoading, children: isLoading ? "Saving..." : isEditing ? "Update Company" : "Add Company" }),
-            isEditing && /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "button",
-              {
-                type: "button",
-                className: "deactivate-button",
-                onClick: resetForm,
-                disabled: isLoading,
-                children: "Cancel"
-              }
-            )
+            companies.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { color: "#718096", fontStyle: "italic" }, children: "Please add a company first to configure ledger settings." })
           ] })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-section", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "section-title", children: "Company Ledger Configuration" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "section-description", children: "Configure general ledger names for each company. These settings are used when exporting to QuickBooks CSV format." }),
-        companies.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "ledgerCompanySelect", children: "Select Company" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "select",
-              {
-                id: "ledgerCompanySelect",
-                value: ledgerCompany?.id || "",
-                onChange: (e) => {
-                  const company = companies.find((c) => c.id === Number(e.target.value));
-                  setLedgerCompany(company || null);
-                },
-                className: "filter-input",
-                style: { width: "100%" },
-                children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "-- Select a company --" }),
-                  companies.map((company) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: company.id, children: company.name }, company.id))
-                ]
-              }
-            )
+        ] }),
+        activeSection === "presets" && /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-section", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "section-title", children: "Ledger Presets" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "section-description", children: "Manage the available ledger preset fields that can be configured for each company. These presets define which fields are available in the Company Ledger Configuration section." }),
+          ledgerPresets.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "companies-list", style: { marginBottom: "20px" }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: { marginTop: 0, marginBottom: "16px", fontSize: "16px", color: "#2d3748" }, children: "Current Presets" }),
+            ledgerPresets.map((preset) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "current-key-info", style: { marginBottom: "16px" }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Key:" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: preset.key })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Label:" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: preset.label })
+              ] }),
+              preset.description && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Description:" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: preset.description })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", style: { borderBottom: "none", paddingTop: "12px" }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "button",
+                  {
+                    type: "button",
+                    className: "toggle-visibility-button",
+                    onClick: () => handleEditPreset(preset),
+                    disabled: isLoading,
+                    style: { marginRight: "8px" },
+                    children: "Edit"
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "button",
+                  {
+                    type: "button",
+                    className: "deactivate-button",
+                    onClick: () => handleDeletePreset(preset),
+                    disabled: isLoading,
+                    style: { flex: "none", padding: "4px 12px", fontSize: "12px" },
+                    children: "Delete"
+                  }
+                )
+              ] })
+            ] }, preset.id))
           ] }),
-          ledgerCompany && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-            LEDGER_PRESETS.map((preset) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: preset.key, children: preset.label }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { onSubmit: handlePresetSubmit, className: "settings-form", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: { marginTop: "20px", marginBottom: "16px", fontSize: "16px", color: "#2d3748" }, children: editingPreset ? "Edit Preset" : "Add New Preset" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "presetKey", children: "Preset Key" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(
                 "input",
                 {
                   type: "text",
-                  id: preset.key,
-                  value: ledgerRecords[preset.key] || "",
-                  onChange: (e) => handleLedgerRecordChange(preset.key, e.target.value),
-                  placeholder: `Enter ${preset.label.toLowerCase()}`,
+                  id: "presetKey",
+                  value: presetKey,
+                  onChange: (e) => setPresetKey(e.target.value),
+                  placeholder: "e.g., gl_name_mercury_checking",
+                  required: true,
                   disabled: isLoading
                 }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "form-help", children: "A unique identifier for this preset (lowercase, underscores allowed)" })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "presetLabel", children: "Display Label" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "input",
+                {
+                  type: "text",
+                  id: "presetLabel",
+                  value: presetLabel,
+                  onChange: (e) => setPresetLabel(e.target.value),
+                  placeholder: "e.g., GL Name Mercury Checking",
+                  required: true,
+                  disabled: isLoading
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "form-help", children: "The user-friendly name shown in the settings form" })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "presetDescription", children: "Description (Optional)" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "input",
+                {
+                  type: "text",
+                  id: "presetDescription",
+                  value: presetDescription,
+                  onChange: (e) => setPresetDescription(e.target.value),
+                  placeholder: "e.g., General ledger name for Mercury checking account",
+                  disabled: isLoading
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "form-help", children: "Optional description to help users understand the purpose of this field" })
+            ] }),
+            presetMessage && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `message ${presetMessage.type}`, children: presetMessage.text }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "button-group", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", className: "submit-button", disabled: isLoading, children: isLoading ? "Saving..." : editingPreset ? "Update Preset" : "Add Preset" }),
+              editingPreset && /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  type: "button",
+                  className: "deactivate-button",
+                  onClick: resetPresetForm,
+                  disabled: isLoading,
+                  children: "Cancel"
+                }
               )
-            ] }, preset.key)),
-            ledgerMessage && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `message ${ledgerMessage.type}`, children: ledgerMessage.text }),
+            ] })
+          ] })
+        ] }) }),
+        activeSection === "account" && /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-section", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "section-title", children: "Account Information" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "section-description", children: "View and manage your account details." }),
+          !isEditingAccount ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "current-key-info", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Name:" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: user?.name })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Email:" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: user?.email })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Account Created:" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: user?.created_at ? new Date(user.created_at).toLocaleDateString() : "N/A" })
+              ] })
+            ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(
               "button",
               {
                 type: "button",
                 className: "submit-button",
-                onClick: handleSaveLedgerRecords,
+                onClick: handleEditAccount,
                 disabled: isLoading,
-                style: { marginTop: "12px" },
-                children: isLoading ? "Saving..." : "Save Ledger Settings"
+                style: { marginTop: "16px" },
+                children: "Edit Account Information"
               }
             )
+          ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { onSubmit: handleAccountSubmit, className: "settings-form", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "accountName", children: "Name" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "input",
+                {
+                  type: "text",
+                  id: "accountName",
+                  value: accountName,
+                  onChange: (e) => setAccountName(e.target.value),
+                  placeholder: "Enter your name",
+                  required: true,
+                  disabled: isLoading
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "accountEmail", children: "Email" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "input",
+                {
+                  type: "email",
+                  id: "accountEmail",
+                  value: accountEmail,
+                  onChange: (e) => setAccountEmail(e.target.value),
+                  placeholder: "Enter your email",
+                  required: true,
+                  disabled: isLoading
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "form-help", children: "This email is used for logging into the application." })
+            ] }),
+            accountMessage && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `message ${accountMessage.type}`, children: accountMessage.text }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "button-group", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", className: "submit-button", disabled: isLoading, children: isLoading ? "Saving..." : "Update Account" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  type: "button",
+                  className: "deactivate-button",
+                  onClick: handleCancelAccountEdit,
+                  disabled: isLoading,
+                  children: "Cancel"
+                }
+              )
+            ] })
           ] })
-        ] }),
-        companies.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { color: "#718096", fontStyle: "italic" }, children: "Please add a company first to configure ledger settings." })
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-section", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "section-title", children: "Account Information" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Name:" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: user?.name })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Email:" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: user?.email })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Account Created:" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: user?.created_at ? new Date(user.created_at).toLocaleDateString() : "N/A" })
-        ] })
-      ] })
+        ] }) })
+      ] }) })
     ] })
   ] });
 }

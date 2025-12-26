@@ -7,6 +7,8 @@ const api = {
   userLogin: (email: string) => ipcRenderer.invoke('user:login', email),
   userSignup: (name: string, email: string) => ipcRenderer.invoke('user:signup', name, email),
   userGetAll: () => ipcRenderer.invoke('user:getAll'),
+  userUpdate: (id: number, name: string, email: string) =>
+    ipcRenderer.invoke('user:update', id, name, email),
 
   // API Key management
   apiKeyCreate: (userId: number, apiKey: string, keyName?: string) =>
@@ -43,7 +45,17 @@ const api = {
   companyLedgerGetAll: (companyId: number) =>
     ipcRenderer.invoke('companyLedger:getAll', companyId),
   companyLedgerDelete: (companyId: number, key: string) =>
-    ipcRenderer.invoke('companyLedger:delete', companyId, key)
+    ipcRenderer.invoke('companyLedger:delete', companyId, key),
+
+  // Ledger Presets
+  ledgerPresetCreate: (key: string, label: string, description?: string) =>
+    ipcRenderer.invoke('ledgerPreset:create', key, label, description),
+  ledgerPresetGetById: (id: number) => ipcRenderer.invoke('ledgerPreset:getById', id),
+  ledgerPresetGetByKey: (key: string) => ipcRenderer.invoke('ledgerPreset:getByKey', key),
+  ledgerPresetGetAll: () => ipcRenderer.invoke('ledgerPreset:getAll'),
+  ledgerPresetUpdate: (id: number, key: string, label: string, description?: string) =>
+    ipcRenderer.invoke('ledgerPreset:update', id, key, label, description),
+  ledgerPresetDelete: (id: number) => ipcRenderer.invoke('ledgerPreset:delete', id)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

@@ -331,3 +331,63 @@ export function deleteAllCompanyLedgerRecords(companyId: number): void {
   const stmt = db.prepare('DELETE FROM company_ledger_records WHERE company_id = ?')
   stmt.run(companyId)
 }
+
+// Ledger Preset queries
+export interface LedgerPreset {
+  id: number
+  key: string
+  label: string
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+export function createLedgerPreset(
+  key: string,
+  label: string,
+  description?: string
+): number {
+  const db = getDatabase()
+  const stmt = db.prepare(
+    'INSERT INTO ledger_presets (key, label, description) VALUES (?, ?, ?)'
+  )
+  const result = stmt.run(key, label, description ?? null)
+  return result.lastInsertRowid as number
+}
+
+export function getLedgerPresetById(id: number): LedgerPreset | undefined {
+  const db = getDatabase()
+  const stmt = db.prepare('SELECT * FROM ledger_presets WHERE id = ?')
+  return stmt.get(id) as LedgerPreset | undefined
+}
+
+export function getLedgerPresetByKey(key: string): LedgerPreset | undefined {
+  const db = getDatabase()
+  const stmt = db.prepare('SELECT * FROM ledger_presets WHERE key = ?')
+  return stmt.get(key) as LedgerPreset | undefined
+}
+
+export function getAllLedgerPresets(): LedgerPreset[] {
+  const db = getDatabase()
+  const stmt = db.prepare('SELECT * FROM ledger_presets ORDER BY key')
+  return stmt.all() as LedgerPreset[]
+}
+
+export function updateLedgerPreset(
+  id: number,
+  key: string,
+  label: string,
+  description?: string
+): void {
+  const db = getDatabase()
+  const stmt = db.prepare(
+    'UPDATE ledger_presets SET key = ?, label = ?, description = ?, updated_at = datetime(\'now\') WHERE id = ?'
+  )
+  stmt.run(key, label, description ?? null, id)
+}
+
+export function deleteLedgerPreset(id: number): void {
+  const db = getDatabase()
+  const stmt = db.prepare('DELETE FROM ledger_presets WHERE id = ?')
+  stmt.run(id)
+}

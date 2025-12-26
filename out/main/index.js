@@ -130,7 +130,7 @@ const createCompaniesTable = {
     db2.exec("DROP TABLE IF EXISTS companies");
   }
 };
-function up(db2) {
+function up$1(db2) {
   db2.exec(`
     CREATE TABLE IF NOT EXISTS company_ledger_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -147,11 +147,45 @@ function up(db2) {
     CREATE INDEX idx_company_ledger_records_key ON company_ledger_records(key);
   `);
 }
-function down(db2) {
+function down$1(db2) {
   db2.exec(`
     DROP INDEX IF EXISTS idx_company_ledger_records_key;
     DROP INDEX IF EXISTS idx_company_ledger_records_company_id;
     DROP TABLE IF EXISTS company_ledger_records;
+  `);
+}
+function up(db2) {
+  db2.exec(`
+    CREATE TABLE IF NOT EXISTS ledger_presets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      description TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX idx_ledger_presets_key ON ledger_presets(key);
+  `);
+  const stmt = db2.prepare(`
+    INSERT INTO ledger_presets (key, label, description)
+    VALUES (?, ?, ?)
+  `);
+  stmt.run(
+    "gl_name_mercury_checking",
+    "GL Name Mercury Checking",
+    "General ledger name for Mercury checking account transactions"
+  );
+  stmt.run(
+    "gl_name_mercury_credit_card",
+    "GL Name Mercury Credit Card",
+    "General ledger name for Mercury credit card transactions"
+  );
+}
+function down(db2) {
+  db2.exec(`
+    DROP INDEX IF EXISTS idx_ledger_presets_key;
+    DROP TABLE IF EXISTS ledger_presets;
   `);
 }
 const migrations = [
@@ -162,6 +196,12 @@ const migrations = [
   {
     id: 5,
     name: "create_company_ledger_records_table",
+    up: up$1,
+    down: down$1
+  },
+  {
+    id: 6,
+    name: "create_ledger_presets_table",
     up,
     down
   }
@@ -226,6 +266,11 @@ function getAllUsers() {
   const db2 = getDatabase();
   const stmt = db2.prepare("SELECT * FROM users ORDER BY created_at DESC");
   return stmt.all();
+}
+function updateUser(id, name, email) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare("UPDATE users SET name = ?, email = ? WHERE id = ?");
+  stmt.run(name, email, id);
 }
 function createApiKey(userId, apiKey, keyName) {
   const db2 = getDatabase();
@@ -329,6 +374,41 @@ function deleteCompanyLedgerRecord(companyId, key) {
   const stmt = db2.prepare("DELETE FROM company_ledger_records WHERE company_id = ? AND key = ?");
   stmt.run(companyId, key);
 }
+function createLedgerPreset(key, label, description) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(
+    "INSERT INTO ledger_presets (key, label, description) VALUES (?, ?, ?)"
+  );
+  const result = stmt.run(key, label, description ?? null);
+  return result.lastInsertRowid;
+}
+function getLedgerPresetById(id) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare("SELECT * FROM ledger_presets WHERE id = ?");
+  return stmt.get(id);
+}
+function getLedgerPresetByKey(key) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare("SELECT * FROM ledger_presets WHERE key = ?");
+  return stmt.get(key);
+}
+function getAllLedgerPresets() {
+  const db2 = getDatabase();
+  const stmt = db2.prepare("SELECT * FROM ledger_presets ORDER BY key");
+  return stmt.all();
+}
+function updateLedgerPreset(id, key, label, description) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(
+    "UPDATE ledger_presets SET key = ?, label = ?, description = ?, updated_at = datetime('now') WHERE id = ?"
+  );
+  stmt.run(key, label, description ?? null, id);
+}
+function deleteLedgerPreset(id) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare("DELETE FROM ledger_presets WHERE id = ?");
+  stmt.run(id);
+}
 function registerIpcHandlers() {
   electron.ipcMain.handle("user:login", async (_event, email) => {
     try {
@@ -360,6 +440,20 @@ function registerIpcHandlers() {
     } catch (error) {
       log.error("Get users error:", error);
       return { success: false, error: "Failed to get users" };
+    }
+  });
+  electron.ipcMain.handle("user:update", async (_event, id, name, email) => {
+    try {
+      const existingUser = getUserByEmail(email);
+      if (existingUser && existingUser.id !== id) {
+        return { success: false, error: "Email is already in use by another account" };
+      }
+      updateUser(id, name, email);
+      const updatedUser = { id, name, email, created_at: existingUser?.created_at || (/* @__PURE__ */ new Date()).toISOString() };
+      return { success: true, user: updatedUser };
+    } catch (error) {
+      log.error("Update user error:", error);
+      return { success: false, error: "Failed to update user" };
     }
   });
   electron.ipcMain.handle("apiKey:create", async (_event, userId, apiKey, keyName) => {
@@ -547,6 +641,66 @@ function registerIpcHandlers() {
     } catch (error) {
       log.error("Delete company ledger record error:", error);
       return { success: false, error: "Failed to delete ledger record" };
+    }
+  });
+  electron.ipcMain.handle(
+    "ledgerPreset:create",
+    async (_event, key, label, description) => {
+      try {
+        const id = createLedgerPreset(key, label, description);
+        return { success: true, id };
+      } catch (error) {
+        log.error("Create ledger preset error:", error);
+        return { success: false, error: "Failed to create ledger preset" };
+      }
+    }
+  );
+  electron.ipcMain.handle("ledgerPreset:getById", async (_event, id) => {
+    try {
+      const preset = getLedgerPresetById(id);
+      return { success: true, preset };
+    } catch (error) {
+      log.error("Get ledger preset error:", error);
+      return { success: false, error: "Failed to get ledger preset" };
+    }
+  });
+  electron.ipcMain.handle("ledgerPreset:getByKey", async (_event, key) => {
+    try {
+      const preset = getLedgerPresetByKey(key);
+      return { success: true, preset };
+    } catch (error) {
+      log.error("Get ledger preset by key error:", error);
+      return { success: false, error: "Failed to get ledger preset" };
+    }
+  });
+  electron.ipcMain.handle("ledgerPreset:getAll", async () => {
+    try {
+      const presets = getAllLedgerPresets();
+      return { success: true, presets };
+    } catch (error) {
+      log.error("Get all ledger presets error:", error);
+      return { success: false, error: "Failed to get ledger presets" };
+    }
+  });
+  electron.ipcMain.handle(
+    "ledgerPreset:update",
+    async (_event, id, key, label, description) => {
+      try {
+        updateLedgerPreset(id, key, label, description);
+        return { success: true };
+      } catch (error) {
+        log.error("Update ledger preset error:", error);
+        return { success: false, error: "Failed to update ledger preset" };
+      }
+    }
+  );
+  electron.ipcMain.handle("ledgerPreset:delete", async (_event, id) => {
+    try {
+      deleteLedgerPreset(id);
+      return { success: true };
+    } catch (error) {
+      log.error("Delete ledger preset error:", error);
+      return { success: false, error: "Failed to delete ledger preset" };
     }
   });
 }

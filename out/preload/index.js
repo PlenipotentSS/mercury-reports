@@ -6,6 +6,7 @@ const api = {
   userLogin: (email) => electron.ipcRenderer.invoke("user:login", email),
   userSignup: (name, email) => electron.ipcRenderer.invoke("user:signup", name, email),
   userGetAll: () => electron.ipcRenderer.invoke("user:getAll"),
+  userUpdate: (id, name, email) => electron.ipcRenderer.invoke("user:update", id, name, email),
   // API Key management
   apiKeyCreate: (userId, apiKey, keyName) => electron.ipcRenderer.invoke("apiKey:create", userId, apiKey, keyName),
   apiKeyGetActive: (userId) => electron.ipcRenderer.invoke("apiKey:getActive", userId),
@@ -26,7 +27,14 @@ const api = {
   companyLedgerSet: (companyId, key, value) => electron.ipcRenderer.invoke("companyLedger:set", companyId, key, value),
   companyLedgerGet: (companyId, key) => electron.ipcRenderer.invoke("companyLedger:get", companyId, key),
   companyLedgerGetAll: (companyId) => electron.ipcRenderer.invoke("companyLedger:getAll", companyId),
-  companyLedgerDelete: (companyId, key) => electron.ipcRenderer.invoke("companyLedger:delete", companyId, key)
+  companyLedgerDelete: (companyId, key) => electron.ipcRenderer.invoke("companyLedger:delete", companyId, key),
+  // Ledger Presets
+  ledgerPresetCreate: (key, label, description) => electron.ipcRenderer.invoke("ledgerPreset:create", key, label, description),
+  ledgerPresetGetById: (id) => electron.ipcRenderer.invoke("ledgerPreset:getById", id),
+  ledgerPresetGetByKey: (key) => electron.ipcRenderer.invoke("ledgerPreset:getByKey", key),
+  ledgerPresetGetAll: () => electron.ipcRenderer.invoke("ledgerPreset:getAll"),
+  ledgerPresetUpdate: (id, key, label, description) => electron.ipcRenderer.invoke("ledgerPreset:update", id, key, label, description),
+  ledgerPresetDelete: (id) => electron.ipcRenderer.invoke("ledgerPreset:delete", id)
 };
 if (process.contextIsolated) {
   try {

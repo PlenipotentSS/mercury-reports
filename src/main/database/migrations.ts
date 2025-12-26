@@ -5,6 +5,7 @@ import { createReportsTable } from './migrations/002_create_reports_table'
 import { createApiKeysTable } from './migrations/003_create_api_keys_table'
 import { createCompaniesTable } from './migrations/004_create_companies_table'
 import * as createCompanyLedgerRecordsTable from './migrations/005_create_company_ledger_records_table'
+import * as createLedgerPresetsTable from './migrations/006_create_ledger_presets_table'
 import log from 'electron-log'
 
 export interface Migration {
@@ -26,6 +27,12 @@ export const migrations: Migration[] = [
     name: 'create_company_ledger_records_table',
     up: createCompanyLedgerRecordsTable.up,
     down: createCompanyLedgerRecordsTable.down
+  },
+  {
+    id: 6,
+    name: 'create_ledger_presets_table',
+    up: createLedgerPresetsTable.up,
+    down: createLedgerPresetsTable.down
   }
 ]
 

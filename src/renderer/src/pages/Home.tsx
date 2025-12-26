@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import type { Company, Account, CompanyAccounts } from '../types'
+import type { CompanyAccounts } from '../types'
 
 export default function Home() {
   const { user } = useAuth()

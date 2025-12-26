@@ -11,6 +11,7 @@ interface AuthContextType {
   user: User | null
   login: (email: string) => Promise<{ success: boolean; error?: string }>
   signup: (name: string, email: string) => Promise<{ success: boolean; error?: string }>
+  updateUser: (name: string, email: string) => Promise<{ success: boolean; error?: string }>
   logout: () => void
   isLoading: boolean
 }
@@ -58,13 +59,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const updateUser = async (name: string, email: string) => {
+    if (!user) {
+      return { success: false, error: 'No user logged in' }
+    }
+
+    try {
+      const result = await window.api.userUpdate(user.id, name, email)
+      if (result.success && result.user) {
+        setUser(result.user)
+        localStorage.setItem('user', JSON.stringify(result.user))
+        return { success: true }
+      }
+      return { success: false, error: result.error || 'Update failed' }
+    } catch (error) {
+      return { success: false, error: 'An error occurred during update' }
+    }
+  }
+
   const logout = () => {
     setUser(null)
     localStorage.removeItem('user')
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, signup, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, signup, updateUser, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   )

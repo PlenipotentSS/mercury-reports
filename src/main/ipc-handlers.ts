@@ -3,6 +3,7 @@ import {
   createUser,
   getUserByEmail,
   getAllUsers,
+  updateUser,
   createApiKey,
   getActiveApiKey,
   getApiKeysByUserId,
@@ -17,7 +18,13 @@ import {
   setCompanyLedgerRecord,
   getCompanyLedgerRecord,
   getAllCompanyLedgerRecords,
-  deleteCompanyLedgerRecord
+  deleteCompanyLedgerRecord,
+  createLedgerPreset,
+  getLedgerPresetById,
+  getLedgerPresetByKey,
+  getAllLedgerPresets,
+  updateLedgerPreset,
+  deleteLedgerPreset
 } from './database/queries'
 import log from 'electron-log'
 
@@ -57,6 +64,23 @@ export function registerIpcHandlers(): void {
     } catch (error) {
       log.error('Get users error:', error)
       return { success: false, error: 'Failed to get users' }
+    }
+  })
+
+  ipcMain.handle('user:update', async (_event, id: number, name: string, email: string) => {
+    try {
+      // Check if email is already used by another user
+      const existingUser = getUserByEmail(email)
+      if (existingUser && existingUser.id !== id) {
+        return { success: false, error: 'Email is already in use by another account' }
+      }
+
+      updateUser(id, name, email)
+      const updatedUser = { id, name, email, created_at: existingUser?.created_at || new Date().toISOString() }
+      return { success: true, user: updatedUser }
+    } catch (error) {
+      log.error('Update user error:', error)
+      return { success: false, error: 'Failed to update user' }
     }
   })
 
@@ -273,6 +297,73 @@ export function registerIpcHandlers(): void {
     } catch (error) {
       log.error('Delete company ledger record error:', error)
       return { success: false, error: 'Failed to delete ledger record' }
+    }
+  })
+
+  // Ledger Preset handlers
+  ipcMain.handle(
+    'ledgerPreset:create',
+    async (_event, key: string, label: string, description?: string) => {
+      try {
+        const id = createLedgerPreset(key, label, description)
+        return { success: true, id }
+      } catch (error) {
+        log.error('Create ledger preset error:', error)
+        return { success: false, error: 'Failed to create ledger preset' }
+      }
+    }
+  )
+
+  ipcMain.handle('ledgerPreset:getById', async (_event, id: number) => {
+    try {
+      const preset = getLedgerPresetById(id)
+      return { success: true, preset }
+    } catch (error) {
+      log.error('Get ledger preset error:', error)
+      return { success: false, error: 'Failed to get ledger preset' }
+    }
+  })
+
+  ipcMain.handle('ledgerPreset:getByKey', async (_event, key: string) => {
+    try {
+      const preset = getLedgerPresetByKey(key)
+      return { success: true, preset }
+    } catch (error) {
+      log.error('Get ledger preset by key error:', error)
+      return { success: false, error: 'Failed to get ledger preset' }
+    }
+  })
+
+  ipcMain.handle('ledgerPreset:getAll', async () => {
+    try {
+      const presets = getAllLedgerPresets()
+      return { success: true, presets }
+    } catch (error) {
+      log.error('Get all ledger presets error:', error)
+      return { success: false, error: 'Failed to get ledger presets' }
+    }
+  })
+
+  ipcMain.handle(
+    'ledgerPreset:update',
+    async (_event, id: number, key: string, label: string, description?: string) => {
+      try {
+        updateLedgerPreset(id, key, label, description)
+        return { success: true }
+      } catch (error) {
+        log.error('Update ledger preset error:', error)
+        return { success: false, error: 'Failed to update ledger preset' }
+      }
+    }
+  )
+
+  ipcMain.handle('ledgerPreset:delete', async (_event, id: number) => {
+    try {
+      deleteLedgerPreset(id)
+      return { success: true }
+    } catch (error) {
+      log.error('Delete ledger preset error:', error)
+      return { success: false, error: 'Failed to delete ledger preset' }
     }
   })
 }

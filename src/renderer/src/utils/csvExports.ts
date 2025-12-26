@@ -134,7 +134,7 @@ export const downloadQuickBooksDeposits = (
     modifyGlCodeComma(txn.generalLedgerCodeName) || '', // From Account
     txn.bankDescription || '', // Line Memo
     '', // Check No.
-    txn.kind || '', // Payment Method
+    'Cash', // Payment Method
     '', // Class
     Math.abs(txn.amount).toString(), // Amount
     '', // Less Cash Back
@@ -192,11 +192,11 @@ export const downloadQuickBooksChecks = (
       txn.id.slice(0, 8), // Number (truncated ID)
       new Date(txn.createdAt).toLocaleDateString('en-US'), // Date
       Math.abs(txn.amount).toString(), // Total Amount
-      `${txn.bankDescription || ''} - ${txn.categoryData?.name || ''}` || '', // Memo
+      `${txn.bankDescription || ''} - ${txn.mercuryCategory || ''}` || '', // Memo
       expenseAccount, // Expense Account
       Math.abs(txn.amount).toString(), // Expense Amount
       txn.bankDescription || '', // Expense Memo
-      '', // Expense Customer:Job
+      `${txn.categoryData?.name}`, // Expense Customer:Job
       '', // Expense Billable
       '', // Expense Class
       '', // Item
@@ -255,11 +255,11 @@ export const downloadQuickBooksCreditCard = (
       new Date(txn.createdAt).toLocaleDateString('en-US'), // Date
       expenseAccount, // Expense Account
       Math.abs(txn.amount).toString(), // Expense Amount
-      txn.mercuryCategory, // Expense Customer:Job
+      `${txn.categoryData?.name}`, // Expense Customer:Job
       '', // Expense Billable
       '', // Expense Class
       '', // Item
-      '', // Item Description
+      `${txn.mercuryCategory}`, // Item Description
       '', // Item Qty.
       '', // Item Cost
       '', // Item Amount
