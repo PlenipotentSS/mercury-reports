@@ -12595,9 +12595,21 @@ function Auth() {
 }
 function Layout({ children }) {
   const { user, logout } = useAuth();
-  const [currentPage, setCurrentPage] = reactExports.useState("home");
+  const getInitialPage = () => {
+    const hash = window.location.hash;
+    if (hash.startsWith("#reports")) return "reports";
+    if (hash.startsWith("#settings")) return "settings";
+    return "home";
+  };
+  const isCompanyWindow = () => {
+    const hash = window.location.hash;
+    const params = new URLSearchParams(hash.substring(hash.indexOf("?")));
+    return params.has("companyId");
+  };
+  const [currentPage, setCurrentPage] = reactExports.useState(getInitialPage());
+  const hideNavigation = isCompanyWindow();
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "layout", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "header", children: [
+    !hideNavigation && /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "header", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "header-left", children: /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { className: "app-title", children: "Mercury Reports" }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("nav", { className: "nav", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -12749,6 +12761,322 @@ function Home() {
     ] }, company.id)) }) })
   ] });
 }
+function processTemplate(template, txn, additionalVars = {}, ledgerContext) {
+  let result = template;
+  const ifMatches = findFunctionCalls(template, "if");
+  if (ifMatches.length > 0) {
+    ifMatches.forEach((match) => {
+      const argsString = match.slice(4, -2);
+      const args = splitByComma(argsString);
+      if (args.length === 3) {
+        const condition = args[0].trim();
+        const trueValue = args[1].trim();
+        const falseValue = args[2].trim();
+        const conditionResult = evaluateCondition(condition, txn, additionalVars, ledgerContext);
+        if (conditionResult) {
+          const resolvedTrue = resolveValue(trueValue, txn, additionalVars, ledgerContext);
+          result = result.replace(match, resolvedTrue);
+        } else {
+          const resolvedFalse = resolveValue(falseValue, txn, additionalVars, ledgerContext);
+          result = result.replace(match, resolvedFalse);
+        }
+      }
+    });
+  }
+  const orMatches = findFunctionCalls(result, "or");
+  if (orMatches.length > 0) {
+    orMatches.forEach((match) => {
+      const argsString = match.slice(4, -2);
+      const args = splitByComma(argsString);
+      let orValue = "";
+      for (const arg of args) {
+        const resolvedValue = resolveValue(arg.trim(), txn, additionalVars, ledgerContext);
+        if (resolvedValue) {
+          orValue = resolvedValue;
+          break;
+        }
+      }
+      result = result.replace(match, orValue);
+    });
+  }
+  const concatMatches = findFunctionCalls(result, "concat");
+  if (concatMatches.length > 0) {
+    concatMatches.forEach((match) => {
+      const argsString = match.slice(8, -2);
+      const args = splitByComma(argsString);
+      const concatenatedValue = args.map((arg) => resolveValue(arg.trim(), txn, additionalVars, ledgerContext)).join("");
+      result = result.replace(match, concatenatedValue);
+    });
+  }
+  if (ledgerContext) {
+    const ledgerPresetKeyMatches = findFunctionCalls(result, "ledgerPresetKey");
+    if (ledgerPresetKeyMatches.length > 0) {
+      ledgerPresetKeyMatches.forEach((match) => {
+        const arg = match.slice(17, -2);
+        const presetKey = getLedgerPresetKey(arg.trim(), txn, additionalVars, ledgerContext);
+        result = result.replace(match, presetKey || "");
+      });
+    }
+  }
+  if (ledgerContext) {
+    const ledgerLookupMatches = findFunctionCalls(result, "ledgerLookup");
+    if (ledgerLookupMatches.length > 0) {
+      ledgerLookupMatches.forEach((match) => {
+        const key = match.slice(14, -2);
+        const value = ledgerContext.ledgerRecords[key] || "";
+        result = result.replace(match, value);
+      });
+    }
+  }
+  if (ledgerContext) {
+    const lookupMatches = result.match(/\{lookup:[^}]+\}/g);
+    if (lookupMatches) {
+      lookupMatches.forEach((match) => {
+        const lookupKey = match.slice(8, -1);
+        const value = performLedgerLookup(txn, lookupKey, ledgerContext);
+        result = result.replace(match, value || "");
+      });
+    }
+  }
+  const txnMatches = result.match(/\{txn\.[^}]+\}/g);
+  if (txnMatches) {
+    txnMatches.forEach((match) => {
+      const path = match.slice(5, -1);
+      const value = getNestedValue(txn, path);
+      result = result.replace(match, value !== null && value !== void 0 ? String(value) : "");
+    });
+  }
+  Object.entries(additionalVars).forEach(([key, value]) => {
+    const pattern = `{${key}}`;
+    result = result.replaceAll(pattern, value || "");
+  });
+  return result;
+}
+function resolveValue(arg, txn, additionalVars, ledgerContext) {
+  if (arg.startsWith('"') && arg.endsWith('"') || arg.startsWith("'") && arg.endsWith("'")) {
+    return arg.slice(1, -1);
+  }
+  if (arg.match(/^(if|or|concat|ledgerLookup|ledgerPresetKey)\(/)) {
+    const wrappedArg = `{${arg}}`;
+    return processTemplate(wrappedArg, txn, additionalVars, ledgerContext);
+  }
+  if (arg.startsWith("ledgerLookup(") && arg.endsWith(")")) {
+    const key = arg.slice(13, -1);
+    if (ledgerContext) {
+      return ledgerContext.ledgerRecords[key] || "";
+    }
+    return "";
+  }
+  if (arg.startsWith("lookup:")) {
+    const lookupKey = arg.slice(7);
+    if (ledgerContext) {
+      return performLedgerLookup(txn, lookupKey, ledgerContext) || "";
+    }
+    return "";
+  }
+  if (arg.startsWith("txn.")) {
+    const path = arg.slice(4);
+    const value = getNestedValue(txn, path);
+    return value !== null && value !== void 0 ? String(value) : "";
+  }
+  return additionalVars[arg] || "";
+}
+function performLedgerLookup(txn, lookupProperty, context) {
+  const { ledgerRecords, mercuryAccountMappings, ledgerPresets, mercuryAccounts } = context;
+  if (!mercuryAccountMappings || !ledgerPresets || !mercuryAccounts) {
+    return null;
+  }
+  const lookupValue = getNestedValue(txn, lookupProperty);
+  if (!lookupValue) {
+    return null;
+  }
+  const matchedAccount = mercuryAccounts.find(
+    (account) => account.name === lookupValue || account.external_id === lookupValue || account.nickname === lookupValue
+  );
+  if (!matchedAccount) {
+    return null;
+  }
+  const ledgerPresetId = mercuryAccountMappings[matchedAccount.id];
+  if (!ledgerPresetId) {
+    return null;
+  }
+  const ledgerPreset = ledgerPresets.find((preset) => preset.id === ledgerPresetId);
+  if (!ledgerPreset) {
+    return null;
+  }
+  return ledgerRecords[ledgerPreset.key] || null;
+}
+function getLedgerPresetKey(arg, txn, additionalVars, context) {
+  const { mercuryAccountMappings, ledgerPresets, mercuryAccounts } = context;
+  if (!mercuryAccountMappings || !ledgerPresets || !mercuryAccounts) {
+    return null;
+  }
+  let lookupValue = null;
+  if (arg.startsWith("lookup:")) {
+    const lookupKey = arg.slice(7);
+    lookupValue = getNestedValue(txn, lookupKey);
+  } else if (arg.startsWith("txn.")) {
+    const path = arg.slice(4);
+    lookupValue = getNestedValue(txn, path);
+  } else {
+    lookupValue = additionalVars[arg];
+  }
+  if (!lookupValue) {
+    return null;
+  }
+  const matchedAccount = mercuryAccounts.find(
+    (account) => account.name === lookupValue || account.external_id === lookupValue || account.nickname === lookupValue
+  );
+  if (!matchedAccount) {
+    return null;
+  }
+  const ledgerPresetId = mercuryAccountMappings[matchedAccount.id];
+  if (!ledgerPresetId) {
+    return null;
+  }
+  const ledgerPreset = ledgerPresets.find((preset) => preset.id === ledgerPresetId);
+  if (!ledgerPreset) {
+    return null;
+  }
+  return ledgerPreset.key;
+}
+function getNestedValue(obj, path) {
+  const keys = path.split(".");
+  let current = obj;
+  for (const key of keys) {
+    if (current === null || current === void 0) {
+      return null;
+    }
+    current = current[key];
+  }
+  return current;
+}
+function findFunctionCalls(template, functionName) {
+  const matches = [];
+  const searchPattern = `{${functionName}(`;
+  let i = 0;
+  while (i < template.length) {
+    const startIndex = template.indexOf(searchPattern, i);
+    if (startIndex === -1) break;
+    let depth = 0;
+    let j = startIndex + searchPattern.length - 1;
+    while (j < template.length) {
+      if (template[j] === "(") {
+        depth++;
+      } else if (template[j] === ")") {
+        depth--;
+        if (depth === 0) {
+          if (j + 1 < template.length && template[j + 1] === "}") {
+            matches.push(template.substring(startIndex, j + 2));
+            i = j + 2;
+            break;
+          } else {
+            i = startIndex + 1;
+            break;
+          }
+        }
+      }
+      j++;
+    }
+    if (j >= template.length) {
+      i = startIndex + 1;
+    }
+  }
+  return matches;
+}
+function splitByComma(str) {
+  const result = [];
+  let current = "";
+  let depth = 0;
+  let inQuotes = false;
+  let quoteChar = "";
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    if ((char === '"' || char === "'") && (i === 0 || str[i - 1] !== "\\")) {
+      if (!inQuotes) {
+        inQuotes = true;
+        quoteChar = char;
+      } else if (char === quoteChar) {
+        inQuotes = false;
+        quoteChar = "";
+      }
+      current += char;
+    } else if (char === "(" && !inQuotes) {
+      depth++;
+      current += char;
+    } else if (char === ")" && !inQuotes) {
+      depth--;
+      current += char;
+    } else if (char === "," && depth === 0 && !inQuotes) {
+      result.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  if (current) {
+    result.push(current);
+  }
+  return result;
+}
+function evaluateCondition(condition, txn, additionalVars, ledgerContext) {
+  if (condition.includes("!=")) {
+    const parts = splitComparison(condition, "!=");
+    if (parts.length === 2) {
+      const leftValue = resolveComparisonValue(parts[0].trim(), txn, additionalVars, ledgerContext);
+      const rightValue = resolveComparisonValue(parts[1].trim(), txn, additionalVars, ledgerContext);
+      return leftValue !== rightValue;
+    }
+  }
+  if (condition.includes("==")) {
+    const parts = splitComparison(condition, "==");
+    if (parts.length === 2) {
+      const leftValue = resolveComparisonValue(parts[0].trim(), txn, additionalVars, ledgerContext);
+      const rightValue = resolveComparisonValue(parts[1].trim(), txn, additionalVars, ledgerContext);
+      return leftValue === rightValue;
+    }
+  }
+  const value = resolveValue(condition, txn, additionalVars, ledgerContext);
+  return !!value;
+}
+function splitComparison(str, operator) {
+  const parts = [];
+  let current = "";
+  let inQuotes = false;
+  let quoteChar = "";
+  let i = 0;
+  while (i < str.length) {
+    const char = str[i];
+    if ((char === '"' || char === "'") && (i === 0 || str[i - 1] !== "\\")) {
+      if (!inQuotes) {
+        inQuotes = true;
+        quoteChar = char;
+      } else if (char === quoteChar) {
+        inQuotes = false;
+        quoteChar = "";
+      }
+      current += char;
+      i++;
+    } else if (!inQuotes && str.substring(i, i + operator.length) === operator) {
+      parts.push(current);
+      current = "";
+      i += operator.length;
+    } else {
+      current += char;
+      i++;
+    }
+  }
+  if (current) {
+    parts.push(current);
+  }
+  return parts;
+}
+function resolveComparisonValue(value, txn, additionalVars, ledgerContext) {
+  if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1);
+  }
+  return resolveValue(value, txn, additionalVars, ledgerContext);
+}
 const QUICKBOOKS_EXPORTABLE_STATUSES = ["sent", "pending"];
 const escapeCSV = (value) => {
   if (value && (value.includes(",") || value.includes('"') || value.includes("\n"))) {
@@ -12832,7 +13160,7 @@ const isCreditCardTransaction = (txn) => {
 const modifyGlCodeComma = (glCode) => {
   return glCode?.includes("|") ? `${glCode?.split("|").join(",")}` : `${glCode}`;
 };
-const downloadQuickBooksDeposits = (transactions, selectedTransactionIds, _, glNameMercuryChecking) => {
+const downloadQuickBooksDeposits = (transactions, selectedTransactionIds, _, glNameMercuryChecking, csvMappings, ledgerContext) => {
   const selectedTxns = transactions.filter(
     (t) => selectedTransactionIds.has(t.id) && isDepositTransaction(t)
   );
@@ -12853,38 +13181,46 @@ const downloadQuickBooksDeposits = (transactions, selectedTransactionIds, _, glN
     "Cash back Accnt.",
     "Cash back Memo"
   ];
-  const rows = selectedTxns.map((txn) => [
-    glNameMercuryChecking,
-    // Deposit To
-    new Date(txn.createdAt).toLocaleDateString("en-US"),
-    // Date
-    `${txn.bankDescription || ""} - ${txn.categoryData?.name || ""}` || "",
-    // Memo
-    txn.counterpartyName || "",
-    // Received From
-    modifyGlCodeComma(txn.generalLedgerCodeName) || "",
-    // From Account
-    txn.bankDescription || "",
-    // Line Memo
-    "",
-    // Check No.
-    "Cash",
-    // Payment Method
-    "",
-    // Class
-    Math.abs(txn.amount).toString(),
-    // Amount
-    "",
-    // Less Cash Back
-    "",
-    // Cash back Accnt.
-    ""
-    // Cash back Memo
-  ]);
+  const defaultMappings = {
+    deposit_to: "{ledgerLookup(gl_name_mercury_checking)}",
+    date: "{txn.createdAt}",
+    memo: "{txn.bankDescription} - {txn.categoryData.name}",
+    received_from: "{txn.counterpartyName}",
+    from_account: "{txn.generalLedgerCodeName}",
+    line_memo: "{txn.bankDescription}",
+    check_no: "",
+    payment_method: "Cash",
+    class: "",
+    amount: "{txn.amount}",
+    less_cash_back: "",
+    cash_back_account: "",
+    cash_back_memo: ""
+  };
+  const mappings = { ...defaultMappings, ...csvMappings };
+  const rows = selectedTxns.map((txn) => {
+    const additionalVars = {
+      glNameMercuryChecking
+    };
+    return [
+      processTemplate(mappings.deposit_to, txn, additionalVars, ledgerContext),
+      mappings.date === "{txn.createdAt}" ? new Date(txn.createdAt).toLocaleDateString("en-US") : processTemplate(mappings.date, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.memo, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.received_from, txn, additionalVars, ledgerContext),
+      modifyGlCodeComma(processTemplate(mappings.from_account, txn, additionalVars, ledgerContext)),
+      processTemplate(mappings.line_memo, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.check_no, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.payment_method, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.class, txn, additionalVars, ledgerContext),
+      mappings.amount === "{txn.amount}" ? Math.abs(txn.amount).toString() : processTemplate(mappings.amount, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.less_cash_back, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.cash_back_account, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.cash_back_memo, txn, additionalVars, ledgerContext)
+    ];
+  });
   const csvContent = buildCSV(headers, rows);
   downloadCSVFile(csvContent, "quickbooks-deposits");
 };
-const downloadQuickBooksChecks = (transactions, selectedTransactionIds, glNameMercuryCreditCard, glNameMercuryChecking) => {
+const downloadQuickBooksChecks = (transactions, selectedTransactionIds, glNameMercuryCreditCard, glNameMercuryChecking, csvMappings, ledgerContext) => {
   const selectedTxns = transactions.filter(
     (t) => selectedTransactionIds.has(t.id) && isWithdrawalTransaction(t)
   );
@@ -12892,139 +13228,85 @@ const downloadQuickBooksChecks = (transactions, selectedTransactionIds, glNameMe
   if (selectedTxns.length === 0) return;
   const headers = [
     "Bank Account",
-    "Payee",
-    "Number",
     "Date",
-    "Total Amount",
+    "Check Number",
+    "Payee",
     "Memo",
-    "Expense Account",
-    "Expense Amount",
-    "Expense Memo",
-    "Expense Customer:Job",
-    "Expense Billable",
-    "Expense Class",
-    "Item",
-    "Item Description",
-    "Item Qty.",
-    "Item Cost",
-    "Item Amount",
-    "Item Customer:Job",
-    "Item Billable",
-    "Item Class"
+    "Account",
+    "Amount",
+    "Class"
   ];
+  const defaultMappings = {
+    bank_account: "{ledgerLookup(gl_name_mercury_checking)}",
+    date: "{txn.createdAt}",
+    check_number: "",
+    payee: "{txn.counterpartyName}",
+    memo: "{txn.bankDescription}",
+    account: "{txn.generalLedgerCodeName}",
+    amount: "{txn.amount}",
+    class: ""
+  };
+  const mappings = { ...defaultMappings, ...csvMappings };
   const rows = selectedTxns.map((txn) => {
-    let expenseAccount = modifyGlCodeComma(txn.generalLedgerCodeName) || "";
+    const additionalVars = {
+      glNameMercuryChecking,
+      glNameMercuryCreditCard
+    };
+    let accountValue = processTemplate(mappings.account, txn, additionalVars, ledgerContext);
     if (txn.kind === "other" && txn.bankDescription?.includes("IO AUTOPAY")) {
-      expenseAccount = glNameMercuryCreditCard || "";
+      accountValue = glNameMercuryCreditCard;
     }
     return [
-      glNameMercuryChecking,
-      // Bank Account
-      txn.counterpartyName || "",
-      // Payee
-      txn.id.slice(0, 8),
-      // Number (truncated ID)
-      new Date(txn.createdAt).toLocaleDateString("en-US"),
-      // Date
-      Math.abs(txn.amount).toString(),
-      // Total Amount
-      `${txn.bankDescription || ""} - ${txn.mercuryCategory || ""}` || "",
-      // Memo
-      expenseAccount,
-      // Expense Account
-      Math.abs(txn.amount).toString(),
-      // Expense Amount
-      txn.bankDescription || "",
-      // Expense Memo
-      `${txn.categoryData?.name}`,
-      // Expense Customer:Job
-      "",
-      // Expense Billable
-      "",
-      // Expense Class
-      "",
-      // Item
-      "",
-      // Item Description
-      "",
-      // Item Qty.
-      "",
-      // Item Cost
-      "",
-      // Item Amount
-      "",
-      // Item Customer:Job
-      "",
-      // Item Billable
-      ""
-      // Item Class
+      processTemplate(mappings.bank_account, txn, additionalVars, ledgerContext),
+      mappings.date === "{txn.createdAt}" ? new Date(txn.createdAt).toLocaleDateString("en-US") : processTemplate(mappings.date, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.check_number, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.payee, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.memo, txn, additionalVars, ledgerContext),
+      modifyGlCodeComma(accountValue),
+      mappings.amount === "{txn.amount}" ? Math.abs(txn.amount).toString() : processTemplate(mappings.amount, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.class, txn, additionalVars, ledgerContext)
     ];
   });
   const csvContent = buildCSV(headers, rows);
   downloadCSVFile(csvContent, "quickbooks-checks");
 };
-const downloadQuickBooksCreditCard = (transactions, selectedTransactionIds, glNameMercuryCreditCard, _) => {
+const downloadQuickBooksCreditCard = (transactions, selectedTransactionIds, glNameMercuryCreditCard, _, csvMappings, ledgerContext) => {
   const selectedTxns = transactions.filter(
     (t) => selectedTransactionIds.has(t.id) && isCreditCardTransaction(t)
   );
   console.log("Selected Transactions for Credit Cards Count", selectedTxns.length);
   if (selectedTxns.length === 0) return;
   const headers = [
-    "Credit Card Account",
-    "Purchased From",
-    "Ref Number",
+    "Credit Card",
     "Date",
-    "Expense Account",
-    "Expense Amount",
-    "Expense Customer:Job",
-    "Expense Billable",
-    "Expense Class",
-    "Item",
-    "Item Description",
-    "Item Qty.",
-    "Item Cost",
-    "Item Amount",
-    "Item Customer:Job",
-    "Item Billable",
-    "Item Class"
+    "Payee",
+    "Memo",
+    "Account",
+    "Amount",
+    "Class"
   ];
+  const defaultMappings = {
+    credit_card: "{ledgerLookup(gl_name_mercury_credit_card)}",
+    date: "{txn.createdAt}",
+    payee: "{txn.counterpartyName}",
+    memo: "{txn.bankDescription}",
+    account: "{txn.generalLedgerCodeName}",
+    amount: "{txn.amount}",
+    class: ""
+  };
+  const mappings = { ...defaultMappings, ...csvMappings };
   const rows = selectedTxns.map((txn) => {
-    let expenseAccount = modifyGlCodeComma(txn.generalLedgerCodeName) || "";
+    const additionalVars = {
+      glNameMercuryCreditCard
+    };
     return [
-      glNameMercuryCreditCard,
-      // Credit Card Account
-      txn.counterpartyName || "",
-      // Purchased From
-      txn.id.slice(0, 8),
-      // Ref Number (truncated ID)
-      new Date(txn.createdAt).toLocaleDateString("en-US"),
-      // Date
-      expenseAccount,
-      // Expense Account
-      Math.abs(txn.amount).toString(),
-      // Expense Amount
-      `${txn.categoryData?.name}`,
-      // Expense Customer:Job
-      "",
-      // Expense Billable
-      "",
-      // Expense Class
-      "",
-      // Item
-      `${txn.mercuryCategory}`,
-      // Item Description
-      "",
-      // Item Qty.
-      "",
-      // Item Cost
-      "",
-      // Item Amount
-      "",
-      // Item Customer:Job
-      "",
-      // Item Billable
-      ""
-      // Item Class
+      processTemplate(mappings.credit_card, txn, additionalVars, ledgerContext),
+      mappings.date === "{txn.createdAt}" ? new Date(txn.createdAt).toLocaleDateString("en-US") : processTemplate(mappings.date, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.payee, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.memo, txn, additionalVars, ledgerContext),
+      modifyGlCodeComma(processTemplate(mappings.account, txn, additionalVars, ledgerContext)),
+      mappings.amount === "{txn.amount}" ? Math.abs(txn.amount).toString() : processTemplate(mappings.amount, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.class, txn, additionalVars, ledgerContext)
     ];
   });
   const csvContent = buildCSV(headers, rows);
@@ -13041,6 +13323,21 @@ function Reports() {
   const [selectedTransactions, setSelectedTransactions] = reactExports.useState(/* @__PURE__ */ new Set());
   const [showActionsDropdown, setShowActionsDropdown] = reactExports.useState(false);
   const [ledgerRecords, setLedgerRecords] = reactExports.useState({});
+  const [csvMappingsDeposits, setCsvMappingsDeposits] = reactExports.useState({});
+  const [csvMappingsChecks, setCsvMappingsChecks] = reactExports.useState({});
+  const [csvMappingsCreditCard, setCsvMappingsCreditCard] = reactExports.useState({});
+  const [mercuryAccounts, setMercuryAccounts] = reactExports.useState([]);
+  const [mercuryAccountMappings, setMercuryAccountMappings] = reactExports.useState({});
+  const [ledgerPresets, setLedgerPresets] = reactExports.useState([]);
+  const [isCompanyLocked, setIsCompanyLocked] = reactExports.useState(false);
+  const handleOpenReportsWindow = async () => {
+    if (!selectedCompany) return;
+    try {
+      await window.api.windowOpenCompanyReports(selectedCompany.id, selectedCompany.name);
+    } catch (error2) {
+      console.error("Failed to open reports window:", error2);
+    }
+  };
   const getDefaultEndDate = () => {
     const today = /* @__PURE__ */ new Date();
     return today.toISOString().split("T")[0];
@@ -13055,16 +13352,54 @@ function Reports() {
     const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1e3);
     return thirtyDaysAgo.toISOString().split("T")[0];
   };
-  const [startDate, setStartDate] = reactExports.useState(getDefaultStartDate());
-  const [endDate, setEndDate] = reactExports.useState(getDefaultEndDate());
-  const [statusFilter, setStatusFilter] = reactExports.useState("");
+  const getInitialStartDate = () => {
+    const saved = localStorage.getItem("reports_startDate");
+    return saved || getDefaultStartDate();
+  };
+  const getInitialEndDate = () => {
+    const saved = localStorage.getItem("reports_endDate");
+    return saved || getDefaultEndDate();
+  };
+  const getInitialStatusFilter = () => {
+    const saved = localStorage.getItem("reports_statusFilter");
+    return saved || "";
+  };
+  const [startDate, setStartDate] = reactExports.useState(getInitialStartDate());
+  const [endDate, setEndDate] = reactExports.useState(getInitialEndDate());
+  const [statusFilter, setStatusFilter] = reactExports.useState(getInitialStatusFilter());
+  reactExports.useEffect(() => {
+    localStorage.setItem("reports_startDate", startDate);
+  }, [startDate]);
+  reactExports.useEffect(() => {
+    localStorage.setItem("reports_endDate", endDate);
+  }, [endDate]);
+  reactExports.useEffect(() => {
+    localStorage.setItem("reports_statusFilter", statusFilter);
+  }, [statusFilter]);
   reactExports.useEffect(() => {
     loadCompanies();
+    loadLedgerPresets();
   }, [user]);
+  reactExports.useEffect(() => {
+    if (companies.length === 0) return;
+    const hash = window.location.hash;
+    const params = new URLSearchParams(hash.substring(hash.indexOf("?")));
+    const companyIdParam = params.get("companyId");
+    if (companyIdParam) {
+      const companyId = parseInt(companyIdParam, 10);
+      const company = companies.find((c) => c.id === companyId);
+      if (company) {
+        setSelectedCompany(company);
+        setIsCompanyLocked(true);
+      }
+    }
+  }, [companies]);
   reactExports.useEffect(() => {
     if (selectedCompany) {
       fetchTransactions();
       loadLedgerRecords(selectedCompany.id);
+      loadAllCsvMappings(selectedCompany.id);
+      loadMercuryAccounts(selectedCompany.id);
     }
   }, [selectedCompany, startDate, endDate, statusFilter]);
   reactExports.useEffect(() => {
@@ -13117,6 +13452,64 @@ function Reports() {
       }
     } catch (error2) {
       console.error("Failed to load ledger records:", error2);
+    }
+  };
+  const loadAllCsvMappings = async (companyId) => {
+    try {
+      const depositsResult = await window.api.csvMappingGetByCompanyAndType(companyId, "quickbooks_deposits");
+      if (depositsResult.success && depositsResult.mappings) {
+        const mappingsMap = {};
+        depositsResult.mappings.forEach((mapping) => {
+          mappingsMap[mapping.field_name] = mapping.template;
+        });
+        setCsvMappingsDeposits(mappingsMap);
+      }
+      const checksResult = await window.api.csvMappingGetByCompanyAndType(companyId, "quickbooks_checks");
+      if (checksResult.success && checksResult.mappings) {
+        const mappingsMap = {};
+        checksResult.mappings.forEach((mapping) => {
+          mappingsMap[mapping.field_name] = mapping.template;
+        });
+        setCsvMappingsChecks(mappingsMap);
+      }
+      const creditCardResult = await window.api.csvMappingGetByCompanyAndType(companyId, "quickbooks_credit_card");
+      if (creditCardResult.success && creditCardResult.mappings) {
+        const mappingsMap = {};
+        creditCardResult.mappings.forEach((mapping) => {
+          mappingsMap[mapping.field_name] = mapping.template;
+        });
+        setCsvMappingsCreditCard(mappingsMap);
+      }
+    } catch (error2) {
+      console.error("Failed to load CSV mappings:", error2);
+    }
+  };
+  const loadMercuryAccounts = async (companyId) => {
+    try {
+      const result = await window.api.mercuryAccountGetByCompanyId(companyId);
+      if (result.success && result.accounts) {
+        setMercuryAccounts(result.accounts);
+        const mappings = {};
+        for (const account of result.accounts) {
+          const mappingResult = await window.api.mercuryAccountGetLedgerMappings(account.id);
+          if (mappingResult.success && mappingResult.mappings && mappingResult.mappings.length > 0) {
+            mappings[account.id] = mappingResult.mappings[0].ledger_preset_id;
+          }
+        }
+        setMercuryAccountMappings(mappings);
+      }
+    } catch (error2) {
+      console.error("Failed to load Mercury accounts:", error2);
+    }
+  };
+  const loadLedgerPresets = async () => {
+    try {
+      const result = await window.api.ledgerPresetGetAll();
+      if (result.success && result.presets) {
+        setLedgerPresets(result.presets);
+      }
+    } catch (error2) {
+      console.error("Failed to load ledger presets:", error2);
     }
   };
   const fetchTransactions = async () => {
@@ -13191,19 +13584,58 @@ function Reports() {
   const handleDownloadQuickBooksDeposits = () => {
     const glNameChecking = ledgerRecords["gl_name_mercury_checking"] || selectedCompany?.name || "";
     const glNameCreditCard = ledgerRecords["gl_name_mercury_credit_card"] || selectedCompany?.name || "";
-    downloadQuickBooksDeposits(transactions, selectedTransactions, glNameCreditCard, glNameChecking);
+    const ledgerContext = {
+      ledgerRecords,
+      mercuryAccountMappings,
+      ledgerPresets,
+      mercuryAccounts
+    };
+    downloadQuickBooksDeposits(
+      transactions,
+      selectedTransactions,
+      glNameCreditCard,
+      glNameChecking,
+      csvMappingsDeposits,
+      ledgerContext
+    );
     setShowActionsDropdown(false);
   };
   const handleDownloadQuickBooksChecks = () => {
     const glNameChecking = ledgerRecords["gl_name_mercury_checking"] || selectedCompany?.name || "";
     const glNameCreditCard = ledgerRecords["gl_name_mercury_credit_card"] || selectedCompany?.name || "";
-    downloadQuickBooksChecks(transactions, selectedTransactions, glNameCreditCard, glNameChecking);
+    const ledgerContext = {
+      ledgerRecords,
+      mercuryAccountMappings,
+      ledgerPresets,
+      mercuryAccounts
+    };
+    downloadQuickBooksChecks(
+      transactions,
+      selectedTransactions,
+      glNameCreditCard,
+      glNameChecking,
+      csvMappingsChecks,
+      ledgerContext
+    );
     setShowActionsDropdown(false);
   };
   const handleDownloadQuickBooksCreditCard = () => {
-    ledgerRecords["gl_name_mercury_checking"] || selectedCompany?.name || "";
+    const glNameChecking = ledgerRecords["gl_name_mercury_checking"] || selectedCompany?.name || "";
     const glNameCreditCard = ledgerRecords["gl_name_mercury_credit_card"] || selectedCompany?.name || "";
-    downloadQuickBooksCreditCard(transactions, selectedTransactions, glNameCreditCard);
+    const ledgerContext = {
+      ledgerRecords,
+      mercuryAccountMappings,
+      ledgerPresets,
+      mercuryAccounts
+    };
+    downloadQuickBooksCreditCard(
+      transactions,
+      selectedTransactions,
+      glNameCreditCard,
+      glNameChecking,
+      csvMappingsCreditCard,
+      ledgerContext
+    );
     setShowActionsDropdown(false);
   };
   if (isLoading && companies.length === 0) {
@@ -13236,9 +13668,9 @@ function Reports() {
     ] });
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page full-width", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "page-title", children: "Mercury Transactions" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "page-title", children: isCompanyLocked && selectedCompany ? `${selectedCompany.name} - Reports` : "Mercury Transactions" }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page-content", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "company-cards-container", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "company-cards-scroll", children: companies.map((company) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      !isCompanyLocked && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "company-cards-container", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "company-cards-scroll", children: companies.map((company) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
         "div",
         {
           className: `company-card ${selectedCompany?.id === company.id ? "selected" : ""}`,
@@ -13255,6 +13687,27 @@ function Reports() {
       )) }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "transactions-header", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: "12px" }, children: [
+          !isCompanyLocked && selectedCompany && /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              onClick: handleOpenReportsWindow,
+              style: {
+                padding: "6px 12px",
+                backgroundColor: "#4299e1",
+                color: "white",
+                border: "none",
+                borderRadius: "4px",
+                cursor: "pointer",
+                fontSize: "13px",
+                fontWeight: "500",
+                transition: "background-color 0.2s",
+                marginRight: "4px"
+              },
+              onMouseOver: (e) => e.currentTarget.style.backgroundColor = "#3182ce",
+              onMouseOut: (e) => e.currentTarget.style.backgroundColor = "#4299e1",
+              children: "Open in New Window"
+            }
+          ),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { margin: 0 }, children: [
             "Total Transactions: ",
             transactions.length
@@ -13353,10 +13806,9 @@ function Reports() {
               onClick: () => {
                 setStartDate(getDefaultStartDate());
                 setEndDate(getDefaultEndDate());
-                setStatusFilter("");
               },
               className: "clear-filters-button",
-              children: "Reset to Last 7 Days"
+              children: "Last 7 Days"
             }
           ),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -13365,7 +13817,6 @@ function Reports() {
               onClick: () => {
                 setStartDate(getThirtyDaysAgoDate());
                 setEndDate(getDefaultEndDate());
-                setStatusFilter("");
               },
               className: "clear-filters-button",
               children: "Last 30 Days"
@@ -13503,6 +13954,16 @@ function Settings() {
   const [accountName, setAccountName] = reactExports.useState("");
   const [accountEmail, setAccountEmail] = reactExports.useState("");
   const [accountMessage, setAccountMessage] = reactExports.useState(null);
+  const [mercuryAccountCompany, setMercuryAccountCompany] = reactExports.useState(null);
+  const [mercuryAccounts, setMercuryAccounts] = reactExports.useState([]);
+  const [mercuryAccountMappings, setMercuryAccountMappings] = reactExports.useState({});
+  const [mercuryCompanyLedgerRecords, setMercuryCompanyLedgerRecords] = reactExports.useState({});
+  const [mercuryMessage, setMercuryMessage] = reactExports.useState(null);
+  const [isSyncingAccounts, setIsSyncingAccounts] = reactExports.useState(false);
+  const [csvMappingCompany, setCsvMappingCompany] = reactExports.useState(null);
+  const [csvExportType, setCsvExportType] = reactExports.useState("quickbooks_deposits");
+  const [csvMappings, setCsvMappings] = reactExports.useState({});
+  const [csvMappingMessage, setCsvMappingMessage] = reactExports.useState(null);
   reactExports.useEffect(() => {
     loadCompanies();
     loadLedgerPresets();
@@ -13512,6 +13973,21 @@ function Settings() {
       loadLedgerRecords(ledgerCompany.id);
     }
   }, [ledgerCompany]);
+  reactExports.useEffect(() => {
+    const handleKeyDown = (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "s") {
+        event.preventDefault();
+        const submitButton = document.querySelector(".submit-button");
+        if (submitButton && !submitButton.disabled) {
+          submitButton.click();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
   const loadCompanies = async () => {
     if (!user) return;
     try {
@@ -13719,6 +14195,72 @@ function Settings() {
     setAccountEmail("");
     setAccountMessage(null);
   };
+  const loadMercuryAccounts = async (companyId) => {
+    try {
+      const result = await window.api.mercuryAccountGetByCompanyId(companyId);
+      if (result.success && result.accounts) {
+        setMercuryAccounts(result.accounts);
+        const mappings = {};
+        for (const account of result.accounts) {
+          const mappingResult = await window.api.mercuryAccountGetLedgerMappings(account.id);
+          if (mappingResult.success && mappingResult.mappings && mappingResult.mappings.length > 0) {
+            mappings[account.id] = mappingResult.mappings[0].ledger_preset_id;
+          }
+        }
+        setMercuryAccountMappings(mappings);
+        const ledgerRecordsResult = await window.api.companyLedgerGetAll(companyId);
+        if (ledgerRecordsResult.success && ledgerRecordsResult.records) {
+          const records = {};
+          for (const record of ledgerRecordsResult.records) {
+            records[record.key] = record.value;
+          }
+          setMercuryCompanyLedgerRecords(records);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load Mercury accounts:", error);
+    }
+  };
+  const handleSyncMercuryAccounts = async () => {
+    if (!mercuryAccountCompany) return;
+    setIsSyncingAccounts(true);
+    setMercuryMessage(null);
+    try {
+      const result = await window.api.mercuryAccountSyncFromApi(
+        mercuryAccountCompany.id,
+        mercuryAccountCompany.api_key
+      );
+      if (result.success) {
+        setMercuryMessage({
+          type: "success",
+          text: `Successfully synced ${result.syncedCount} account(s) from Mercury`
+        });
+        await loadMercuryAccounts(mercuryAccountCompany.id);
+      } else {
+        setMercuryMessage({ type: "error", text: result.error || "Failed to sync accounts" });
+      }
+    } catch (error) {
+      setMercuryMessage({ type: "error", text: "An unexpected error occurred" });
+    } finally {
+      setIsSyncingAccounts(false);
+    }
+  };
+  const handleSetLedgerMapping = async (mercuryAccountId, ledgerPresetId) => {
+    try {
+      const result = await window.api.mercuryAccountSetLedgerMapping(mercuryAccountId, ledgerPresetId);
+      if (result.success) {
+        setMercuryAccountMappings((prev) => ({
+          ...prev,
+          [mercuryAccountId]: ledgerPresetId
+        }));
+        setMercuryMessage({ type: "success", text: "Ledger mapping updated successfully!" });
+      } else {
+        setMercuryMessage({ type: "error", text: result.error || "Failed to update mapping" });
+      }
+    } catch (error) {
+      setMercuryMessage({ type: "error", text: "An unexpected error occurred" });
+    }
+  };
   const handleAccountSubmit = async (e) => {
     e.preventDefault();
     if (!user) return;
@@ -13740,6 +14282,97 @@ function Settings() {
       setIsLoading(false);
     }
   };
+  const loadCsvMappings = async (companyId, exportType) => {
+    try {
+      const result = await window.api.csvMappingGetByCompanyAndType(companyId, exportType);
+      if (result.success && result.mappings) {
+        const mappingsMap = {};
+        result.mappings.forEach((mapping) => {
+          mappingsMap[mapping.field_name] = mapping.template;
+        });
+        setCsvMappings(mappingsMap);
+      } else {
+        setCsvMappings({});
+      }
+    } catch (error) {
+      console.error("Failed to load CSV mappings:", error);
+    }
+  };
+  const handleCsvMappingChange = (fieldName, template) => {
+    setCsvMappings((prev) => ({ ...prev, [fieldName]: template }));
+  };
+  const stripWhitespaceFromTemplate = (template) => {
+    return template.replace(/\s+/g, " ").trim();
+  };
+  const handleSaveCsvMappings = async () => {
+    if (!csvMappingCompany) return;
+    setIsLoading(true);
+    setCsvMappingMessage(null);
+    try {
+      const fields = getCsvFieldsForExportType(csvExportType);
+      for (const field of fields) {
+        const textareaElement = document.getElementById(field.key);
+        const template = textareaElement ? textareaElement.value : csvMappings[field.key] ?? field.default;
+        const cleanedTemplate = stripWhitespaceFromTemplate(template);
+        console.log(`Saving ${field.key}:`, cleanedTemplate);
+        await window.api.csvMappingUpsert(
+          csvMappingCompany.id,
+          csvExportType,
+          field.key,
+          cleanedTemplate
+        );
+      }
+      setCsvMappingMessage({ type: "success", text: "CSV mappings saved successfully!" });
+      if (csvMappingCompany) {
+        loadCsvMappings(csvMappingCompany.id, csvExportType);
+      }
+    } catch (error) {
+      console.error("Save error:", error);
+      setCsvMappingMessage({ type: "error", text: "Failed to save CSV mappings" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  const getCsvFieldsForExportType = (exportType) => {
+    switch (exportType) {
+      case "quickbooks_deposits":
+        return [
+          { field: "Deposit To", key: "deposit_to", default: "{ledgerLookup(gl_name_mercury_checking)}", description: "The account where funds are deposited" },
+          { field: "Date", key: "date", default: "{txn.createdAt}", description: "Transaction date" },
+          { field: "Memo", key: "memo", default: "{txn.bankDescription} - {txn.categoryData.name}", description: "Main transaction memo" },
+          { field: "Received From", key: "received_from", default: "{txn.counterpartyName}", description: "Who the payment is from" },
+          { field: "From Account", key: "from_account", default: "{txn.generalLedgerCodeName}", description: "Source account/GL code" },
+          { field: "Line Memo", key: "line_memo", default: "{txn.bankDescription}", description: "Line item memo" },
+          { field: "Check No.", key: "check_no", default: "", description: "Check number (optional)" },
+          { field: "Payment Method", key: "payment_method", default: "Cash", description: "Payment method" },
+          { field: "Class", key: "class", default: "", description: "QuickBooks class (optional)" },
+          { field: "Amount", key: "amount", default: "{txn.amount}", description: "Transaction amount" }
+        ];
+      case "quickbooks_checks":
+        return [
+          { field: "Bank Account", key: "bank_account", default: "{ledgerLookup(gl_name_mercury_checking)}", description: "Bank account to pay from" },
+          { field: "Date", key: "date", default: "{txn.createdAt}", description: "Transaction date" },
+          { field: "Check Number", key: "check_number", default: "", description: "Check number (optional)" },
+          { field: "Payee", key: "payee", default: "{txn.counterpartyName}", description: "Who the check is paid to" },
+          { field: "Memo", key: "memo", default: "{txn.bankDescription}", description: "Transaction memo" },
+          { field: "Account", key: "account", default: "{txn.generalLedgerCodeName}", description: "Expense account/GL code" },
+          { field: "Amount", key: "amount", default: "{txn.amount}", description: "Transaction amount" },
+          { field: "Class", key: "class", default: "", description: "QuickBooks class (optional)" }
+        ];
+      case "quickbooks_credit_card":
+        return [
+          { field: "Credit Card", key: "credit_card", default: "{ledgerLookup(gl_name_mercury_credit_card)}", description: "Credit card account" },
+          { field: "Date", key: "date", default: "{txn.createdAt}", description: "Transaction date" },
+          { field: "Payee", key: "payee", default: "{txn.counterpartyName}", description: "Merchant/payee name" },
+          { field: "Memo", key: "memo", default: "{txn.bankDescription}", description: "Transaction memo" },
+          { field: "Account", key: "account", default: "{txn.generalLedgerCodeName}", description: "Expense account/GL code" },
+          { field: "Amount", key: "amount", default: "{txn.amount}", description: "Transaction amount" },
+          { field: "Class", key: "class", default: "", description: "QuickBooks class (optional)" }
+        ];
+      default:
+        return [];
+    }
+  };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "page", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { className: "page-title", children: "Settings" }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-layout", children: [
@@ -13758,6 +14391,22 @@ function Settings() {
             className: `settings-nav-item ${activeSection === "presets" ? "active" : ""}`,
             onClick: () => setActiveSection("presets"),
             children: "Ledger Presets"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `settings-nav-item ${activeSection === "mercury-accounts" ? "active" : ""}`,
+            onClick: () => setActiveSection("mercury-accounts"),
+            children: "Mercury Accounts"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `settings-nav-item ${activeSection === "csv-mappings" ? "active" : ""}`,
+            onClick: () => setActiveSection("csv-mappings"),
+            children: "CSV Mappings"
           }
         ),
         /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -14123,6 +14772,260 @@ function Settings() {
               )
             ] })
           ] })
+        ] }) }),
+        activeSection === "mercury-accounts" && /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-section", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "section-title", children: "Mercury Account Ledger Mappings" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "section-description", children: "Assign ledger preset keys to your Mercury accounts. These mappings are used when exporting transactions to QuickBooks CSV format." }),
+          companies.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "mercuryAccountCompanySelect", children: "Select Company" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                "select",
+                {
+                  id: "mercuryAccountCompanySelect",
+                  value: mercuryAccountCompany?.id || "",
+                  onChange: (e) => {
+                    const company = companies.find((c) => c.id === Number(e.target.value));
+                    setMercuryAccountCompany(company || null);
+                    if (company) {
+                      loadMercuryAccounts(company.id);
+                    } else {
+                      setMercuryAccounts([]);
+                      setMercuryAccountMappings({});
+                      setMercuryCompanyLedgerRecords({});
+                    }
+                    setMercuryMessage(null);
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "-- Select a Company --" }),
+                    companies.map((company) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: company.id, children: company.name }, company.id))
+                  ]
+                }
+              )
+            ] }),
+            mercuryAccountCompany && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  type: "button",
+                  className: "submit-button",
+                  onClick: handleSyncMercuryAccounts,
+                  disabled: isSyncingAccounts,
+                  style: { marginBottom: "20px" },
+                  children: isSyncingAccounts ? "Syncing..." : "Sync Accounts from Mercury"
+                }
+              ),
+              mercuryMessage && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `message ${mercuryMessage.type}`, style: { marginBottom: "20px" }, children: mercuryMessage.text }),
+              mercuryAccounts.filter((account) => account.status?.toLowerCase() === "active").length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: { marginTop: 0, marginBottom: "16px", fontSize: "16px", color: "#2d3748" }, children: "Account Ledger Mappings" }),
+                mercuryAccounts.filter((account) => account.status?.toLowerCase() === "active").map((account) => {
+                  const selectedPresetId = mercuryAccountMappings[account.id];
+                  const selectedPreset = selectedPresetId ? ledgerPresets.find((p) => p.id === selectedPresetId) : null;
+                  const ledgerRecordValue = selectedPreset ? mercuryCompanyLedgerRecords[selectedPreset.key] : null;
+                  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "current-key-info", style: { marginBottom: "16px" }, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Account Name:" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: account.name })
+                    ] }),
+                    account.nickname && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Nickname:" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: account.nickname })
+                    ] }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Type:" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", children: account.account_type || "N/A" })
+                    ] }),
+                    selectedPreset && ledgerRecordValue && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "info-row", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-label", children: "Ledger Value:" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "info-value", style: { fontWeight: 600, color: "#667eea" }, children: ledgerRecordValue })
+                    ] }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", style: { marginTop: "12px" }, children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: `ledger-preset-${account.id}`, children: "Assign Ledger Preset" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                        "select",
+                        {
+                          id: `ledger-preset-${account.id}`,
+                          value: mercuryAccountMappings[account.id] || "",
+                          onChange: (e) => {
+                            const presetId = Number(e.target.value);
+                            if (presetId) {
+                              handleSetLedgerMapping(account.id, presetId);
+                            }
+                          },
+                          children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "-- Select a Ledger Preset --" }),
+                            ledgerPresets.map((preset) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: preset.id, children: preset.label }, preset.id))
+                          ]
+                        }
+                      )
+                    ] })
+                  ] }, account.id);
+                })
+              ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { color: "#718096", fontSize: "14px" }, children: 'No active accounts found. Click "Sync Accounts from Mercury" to load accounts from the API.' })
+            ] })
+          ] }),
+          companies.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { color: "#718096", fontSize: "14px" }, children: 'No companies configured. Please add a company in the "Companies & API Keys" section first.' })
+        ] }) }),
+        activeSection === "csv-mappings" && /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-section", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "section-title", children: "QuickBooks CSV Mappings" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "section-description", children: [
+            "Configure custom field mappings for QuickBooks CSV exports. Use template variables like ",
+            `{txn.amount}`,
+            ", ",
+            `{txn.bankDescription}`,
+            ", ",
+            `{txn.counterpartyName}`,
+            ", etc."
+          ] }),
+          companies.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "csvMappingCompanySelect", children: "Select Company" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                "select",
+                {
+                  id: "csvMappingCompanySelect",
+                  value: csvMappingCompany?.id || "",
+                  onChange: (e) => {
+                    const company = companies.find((c) => c.id === Number(e.target.value));
+                    setCsvMappingCompany(company || null);
+                    if (company) {
+                      loadCsvMappings(company.id, csvExportType);
+                    } else {
+                      setCsvMappings({});
+                    }
+                    setCsvMappingMessage(null);
+                  },
+                  className: "filter-input",
+                  style: { width: "100%" },
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "-- Select a company --" }),
+                    companies.map((company) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: company.id, children: company.name }, company.id))
+                  ]
+                }
+              )
+            ] }),
+            csvMappingCompany && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "csvExportTypeSelect", children: "Export Type" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                  "select",
+                  {
+                    id: "csvExportTypeSelect",
+                    value: csvExportType,
+                    onChange: (e) => {
+                      const newExportType = e.target.value;
+                      setCsvExportType(newExportType);
+                      loadCsvMappings(csvMappingCompany.id, newExportType);
+                      setCsvMappingMessage(null);
+                    },
+                    className: "filter-input",
+                    style: { width: "100%" },
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "quickbooks_deposits", children: "QuickBooks Deposits" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "quickbooks_checks", children: "QuickBooks Checks" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "quickbooks_credit_card", children: "QuickBooks Credit Card" })
+                    ]
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: "20px" }, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { style: { marginTop: 0, marginBottom: "16px", fontSize: "16px", color: "#2d3748" }, children: "Field Mappings" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { fontSize: "12px", color: "#718096", marginBottom: "16px", lineHeight: "1.6" }, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { marginTop: 0, marginBottom: "8px" }, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Transaction Variables:" }),
+                    " ",
+                    `{txn.amount}`,
+                    ", ",
+                    `{txn.createdAt}`,
+                    ", ",
+                    `{txn.bankDescription}`,
+                    ", ",
+                    `{txn.counterpartyName}`,
+                    ", ",
+                    `{txn.categoryData.name}`,
+                    ", ",
+                    `{txn.generalLedgerCodeName}`
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { marginTop: 0, marginBottom: "8px" }, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Ledger Variables:" }),
+                    " ",
+                    `{glNameMercuryChecking}`,
+                    ", ",
+                    `{glNameMercuryCreditCard}`
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { marginTop: 0, marginBottom: "8px" }, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Ledger Lookup Function:" }),
+                    " ",
+                    `{ledgerLookup(gl_name_mercury_checking)}`,
+                    " - Looks up a ledger record by key for the current company"
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { marginTop: 0, marginBottom: "8px" }, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Account Lookup Function:" }),
+                    " ",
+                    `{lookup:counterpartyName}`,
+                    " - Dynamically looks up the ledger record value for a Mercury account based on the transaction's counterparty name"
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { marginTop: 0, marginBottom: "8px" }, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Or Function:" }),
+                    " ",
+                    `{or(lookup:counterpartyName, ledgerLookup(gl_name_mercury_checking), txn.generalLedgerCodeName)}`,
+                    " - Returns the first non-empty value from the list"
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { marginTop: 0, marginBottom: "8px" }, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "If Function:" }),
+                    " ",
+                    `{if(txn.counterpartyName=="Mercury Checking", value1, value2)}`,
+                    " - Returns value1 if condition is true, otherwise value2. String literals must be quoted. Supports == and != operators"
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { marginTop: 0, marginBottom: "8px" }, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Ledger Preset Key Function:" }),
+                    " ",
+                    `{ledgerPresetKey(lookup:counterpartyName)}`,
+                    " - Returns the ledger preset key for a Mercury account. Can be nested: ",
+                    `{ledgerLookup(ledgerPresetKey(lookup:counterpartyName))}`
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { marginTop: 0, marginBottom: 0, color: "#718096", fontSize: "13px", fontStyle: "italic" }, children: "Note: Templates can be written on multiple lines for readability. All whitespace and line breaks will be automatically removed when saved." })
+                ] }),
+                getCsvFieldsForExportType(csvExportType).map((field) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-group", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { htmlFor: field.key, children: [
+                    field.field,
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("small", { style: { display: "block", fontWeight: "normal", color: "#718096", marginTop: "4px" }, children: field.description })
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "textarea",
+                    {
+                      id: field.key,
+                      value: csvMappings[field.key] ?? field.default,
+                      onChange: (e) => handleCsvMappingChange(field.key, e.target.value),
+                      placeholder: field.default,
+                      disabled: isLoading,
+                      rows: 3,
+                      style: {
+                        width: "100%",
+                        fontFamily: "monospace",
+                        fontSize: "13px",
+                        resize: "vertical",
+                        minHeight: "60px"
+                      }
+                    }
+                  )
+                ] }, field.key)),
+                csvMappingMessage && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: `message ${csvMappingMessage.type}`, children: csvMappingMessage.text }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "button",
+                  {
+                    type: "button",
+                    className: "submit-button",
+                    onClick: handleSaveCsvMappings,
+                    disabled: isLoading,
+                    style: { marginTop: "12px" },
+                    children: isLoading ? "Saving..." : "Save CSV Mappings"
+                  }
+                )
+              ] })
+            ] })
+          ] }),
+          companies.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { color: "#718096", fontStyle: "italic" }, children: "Please add a company first to configure CSV mappings." })
         ] }) })
       ] }) })
     ] })

@@ -47,6 +47,37 @@ interface LedgerPreset {
   updated_at: string
 }
 
+interface MercuryAccount {
+  id: number
+  company_id: number
+  external_id: string
+  name: string
+  nickname: string | null
+  dashboard_link: string | null
+  status: string | null
+  account_type: string | null
+  created_at: string
+  updated_at: string
+}
+
+interface AccountLedgerMapping {
+  id: number
+  mercury_account_id: number
+  ledger_preset_id: number
+  created_at: string
+  updated_at: string
+}
+
+interface CsvMapping {
+  id: number
+  company_id: number
+  export_type: string
+  field_name: string
+  template: string
+  created_at: string
+  updated_at: string
+}
+
 interface API {
   // User authentication
   userLogin: (email: string) => Promise<{ success: boolean; user?: User; error?: string }>
@@ -145,6 +176,41 @@ interface API {
     description?: string
   ) => Promise<{ success: boolean; error?: string }>
   ledgerPresetDelete: (id: number) => Promise<{ success: boolean; error?: string }>
+
+  // Mercury Accounts
+  mercuryAccountSyncFromApi: (
+    companyId: number,
+    apiKey: string
+  ) => Promise<{ success: boolean; syncedCount?: number; error?: string }>
+  mercuryAccountGetByCompanyId: (
+    companyId: number
+  ) => Promise<{ success: boolean; accounts?: MercuryAccount[]; error?: string }>
+  mercuryAccountSetLedgerMapping: (
+    mercuryAccountId: number,
+    ledgerPresetId: number
+  ) => Promise<{ success: boolean; error?: string }>
+  mercuryAccountGetLedgerMappings: (
+    mercuryAccountId: number
+  ) => Promise<{ success: boolean; mappings?: AccountLedgerMapping[]; error?: string }>
+
+  // CSV Mappings
+  csvMappingGetByCompanyAndType: (
+    companyId: number,
+    exportType: string
+  ) => Promise<{ success: boolean; mappings?: CsvMapping[]; error?: string }>
+  csvMappingUpsert: (
+    companyId: number,
+    exportType: string,
+    fieldName: string,
+    template: string
+  ) => Promise<{ success: boolean; error?: string }>
+  csvMappingDelete: (id: number) => Promise<{ success: boolean; error?: string }>
+
+  // Window management
+  windowOpenCompanyReports: (
+    companyId: number,
+    companyName: string
+  ) => Promise<{ success: boolean; error?: string }>
 }
 
 declare global {

@@ -30,11 +30,25 @@ export default function Settings() {
   const [presetLabel, setPresetLabel] = useState('')
   const [presetDescription, setPresetDescription] = useState('')
   const [presetMessage, setPresetMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [activeSection, setActiveSection] = useState<'companies' | 'presets' | 'account'>('companies')
+  const [activeSection, setActiveSection] = useState<'companies' | 'presets' | 'account' | 'mercury-accounts' | 'csv-mappings'>('companies')
   const [isEditingAccount, setIsEditingAccount] = useState(false)
   const [accountName, setAccountName] = useState('')
   const [accountEmail, setAccountEmail] = useState('')
   const [accountMessage, setAccountMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Mercury Accounts state
+  const [mercuryAccountCompany, setMercuryAccountCompany] = useState<Company | null>(null)
+  const [mercuryAccounts, setMercuryAccounts] = useState<any[]>([])
+  const [mercuryAccountMappings, setMercuryAccountMappings] = useState<{ [accountId: number]: number }>({})
+  const [mercuryCompanyLedgerRecords, setMercuryCompanyLedgerRecords] = useState<{ [key: string]: string }>({})
+  const [mercuryMessage, setMercuryMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [isSyncingAccounts, setIsSyncingAccounts] = useState(false)
+
+  // CSV Mappings state
+  const [csvMappingCompany, setCsvMappingCompany] = useState<Company | null>(null)
+  const [csvExportType, setCsvExportType] = useState<'quickbooks_deposits' | 'quickbooks_checks' | 'quickbooks_credit_card'>('quickbooks_deposits')
+  const [csvMappings, setCsvMappings] = useState<{ [key: string]: string }>({})
+  const [csvMappingMessage, setCsvMappingMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
     loadCompanies()
@@ -46,6 +60,27 @@ export default function Settings() {
       loadLedgerRecords(ledgerCompany.id)
     }
   }, [ledgerCompany])
+
+  // Keyboard shortcut handler for saving
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check for Cmd+S (Mac) or Ctrl+S (Windows/Linux)
+      if ((event.metaKey || event.ctrlKey) && event.key === 's') {
+        event.preventDefault()
+
+        // Save based on active section - just click the submit button for all sections
+        const submitButton = document.querySelector('.submit-button') as HTMLButtonElement
+        if (submitButton && !submitButton.disabled) {
+          submitButton.click()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
 
   const loadCompanies = async () => {
     if (!user) return
@@ -285,6 +320,82 @@ export default function Settings() {
     setAccountMessage(null)
   }
 
+  // Mercury Accounts functions
+  const loadMercuryAccounts = async (companyId: number) => {
+    try {
+      const result = await window.api.mercuryAccountGetByCompanyId(companyId)
+      if (result.success && result.accounts) {
+        setMercuryAccounts(result.accounts)
+
+        // Load mappings for each account
+        const mappings: { [accountId: number]: number } = {}
+        for (const account of result.accounts) {
+          const mappingResult = await window.api.mercuryAccountGetLedgerMappings(account.id)
+          if (mappingResult.success && mappingResult.mappings && mappingResult.mappings.length > 0) {
+            mappings[account.id] = mappingResult.mappings[0].ledger_preset_id
+          }
+        }
+        setMercuryAccountMappings(mappings)
+
+        // Load company ledger records
+        const ledgerRecordsResult = await window.api.companyLedgerGetAll(companyId)
+        if (ledgerRecordsResult.success && ledgerRecordsResult.records) {
+          const records: { [key: string]: string } = {}
+          for (const record of ledgerRecordsResult.records) {
+            records[record.key] = record.value
+          }
+          setMercuryCompanyLedgerRecords(records)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load Mercury accounts:', error)
+    }
+  }
+
+  const handleSyncMercuryAccounts = async () => {
+    if (!mercuryAccountCompany) return
+
+    setIsSyncingAccounts(true)
+    setMercuryMessage(null)
+
+    try {
+      const result = await window.api.mercuryAccountSyncFromApi(
+        mercuryAccountCompany.id,
+        mercuryAccountCompany.api_key
+      )
+      if (result.success) {
+        setMercuryMessage({
+          type: 'success',
+          text: `Successfully synced ${result.syncedCount} account(s) from Mercury`
+        })
+        await loadMercuryAccounts(mercuryAccountCompany.id)
+      } else {
+        setMercuryMessage({ type: 'error', text: result.error || 'Failed to sync accounts' })
+      }
+    } catch (error) {
+      setMercuryMessage({ type: 'error', text: 'An unexpected error occurred' })
+    } finally {
+      setIsSyncingAccounts(false)
+    }
+  }
+
+  const handleSetLedgerMapping = async (mercuryAccountId: number, ledgerPresetId: number) => {
+    try {
+      const result = await window.api.mercuryAccountSetLedgerMapping(mercuryAccountId, ledgerPresetId)
+      if (result.success) {
+        setMercuryAccountMappings((prev) => ({
+          ...prev,
+          [mercuryAccountId]: ledgerPresetId
+        }))
+        setMercuryMessage({ type: 'success', text: 'Ledger mapping updated successfully!' })
+      } else {
+        setMercuryMessage({ type: 'error', text: result.error || 'Failed to update mapping' })
+      }
+    } catch (error) {
+      setMercuryMessage({ type: 'error', text: 'An unexpected error occurred' })
+    }
+  }
+
   const handleAccountSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!user) return
@@ -309,6 +420,122 @@ export default function Settings() {
     }
   }
 
+  // CSV Mappings functions
+  const loadCsvMappings = async (companyId: number, exportType: string) => {
+    try {
+      const result = await window.api.csvMappingGetByCompanyAndType(companyId, exportType)
+      if (result.success && result.mappings) {
+        const mappingsMap: { [key: string]: string } = {}
+        result.mappings.forEach((mapping) => {
+          mappingsMap[mapping.field_name] = mapping.template
+        })
+        setCsvMappings(mappingsMap)
+      } else {
+        setCsvMappings({})
+      }
+    } catch (error) {
+      console.error('Failed to load CSV mappings:', error)
+    }
+  }
+
+  const handleCsvMappingChange = (fieldName: string, template: string) => {
+    setCsvMappings((prev) => ({ ...prev, [fieldName]: template }))
+  }
+
+  // Strip all whitespace and line breaks from template strings
+  // This allows users to write multiline templates for readability while keeping the stored template clean
+  const stripWhitespaceFromTemplate = (template: string): string => {
+    return template.replace(/\s+/g, ' ').trim()
+  }
+
+  const handleSaveCsvMappings = async () => {
+    if (!csvMappingCompany) return
+
+    setIsLoading(true)
+    setCsvMappingMessage(null)
+
+    try {
+      // Get all field names for the current export type
+      const fields = getCsvFieldsForExportType(csvExportType)
+
+      for (const field of fields) {
+        // Get the current value from the DOM textarea element to ensure we have the latest value
+        const textareaElement = document.getElementById(field.key) as HTMLTextAreaElement
+        // Use textarea value if it exists (even if empty), otherwise fall back to state or default
+        const template = textareaElement ? textareaElement.value : (csvMappings[field.key] ?? field.default)
+        // Strip whitespace and line breaks before saving
+        const cleanedTemplate = stripWhitespaceFromTemplate(template)
+
+        console.log(`Saving ${field.key}:`, cleanedTemplate) // Debug log
+
+        await window.api.csvMappingUpsert(
+          csvMappingCompany.id,
+          csvExportType,
+          field.key,
+          cleanedTemplate
+        )
+      }
+      setCsvMappingMessage({ type: 'success', text: 'CSV mappings saved successfully!' })
+      // Reload the mappings to show the cleaned version
+      if (csvMappingCompany) {
+        loadCsvMappings(csvMappingCompany.id, csvExportType)
+      }
+    } catch (error) {
+      console.error('Save error:', error) // Debug log
+      setCsvMappingMessage({ type: 'error', text: 'Failed to save CSV mappings' })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const getCsvFieldsForExportType = (exportType: string) => {
+    switch (exportType) {
+      case 'quickbooks_deposits':
+        return [
+          { field: 'Deposit To', key: 'deposit_to', default: '{ledgerLookup(gl_name_mercury_checking)}', description: 'The account where funds are deposited' },
+          { field: 'Date', key: 'date', default: '{txn.createdAt}', description: 'Transaction date' },
+          { field: 'Memo', key: 'memo', default: '{txn.bankDescription} - {txn.categoryData.name}', description: 'Main transaction memo' },
+          { field: 'Received From', key: 'received_from', default: '{txn.counterpartyName}', description: 'Who the payment is from' },
+          { field: 'From Account', key: 'from_account', default: '{txn.generalLedgerCodeName}', description: 'Source account/GL code' },
+          { field: 'Line Memo', key: 'line_memo', default: '{txn.bankDescription}', description: 'Line item memo' },
+          { field: 'Check No.', key: 'check_no', default: '', description: 'Check number (optional)' },
+          { field: 'Payment Method', key: 'payment_method', default: 'Cash', description: 'Payment method' },
+          { field: 'Class', key: 'class', default: '', description: 'QuickBooks class (optional)' },
+          { field: 'Amount', key: 'amount', default: '{txn.amount}', description: 'Transaction amount' }
+        ]
+      case 'quickbooks_checks':
+        return [
+          { field: 'Bank Account', key: 'bank_account', default: '{ledgerLookup(gl_name_mercury_checking)}', description: 'Bank account to pay from' },
+          { field: 'Date', key: 'date', default: '{txn.createdAt}', description: 'Transaction date' },
+          { field: 'Check Number', key: 'check_number', default: '', description: 'Check number (optional)' },
+          { field: 'Payee', key: 'payee', default: '{txn.counterpartyName}', description: 'Who the check is paid to' },
+          { field: 'Memo', key: 'memo', default: '{txn.bankDescription}', description: 'Transaction memo' },
+          { field: 'Account', key: 'account', default: '{txn.generalLedgerCodeName}', description: 'Expense account/GL code' },
+          { field: 'Amount', key: 'amount', default: '{txn.amount}', description: 'Transaction amount' },
+          { field: 'Class', key: 'class', default: '', description: 'QuickBooks class (optional)' },
+          { field: 'Expense Amount', key: 'expense_amount', default: '', description: 'Additional expense amount (optional)' },
+          { field: 'Expense Memo', key: 'expense_memo', default: '', description: 'Expense line memo (optional)' },
+          { field: 'Expense Customer:Job', key: 'expense_customer_job', default: '', description: 'Customer/Job for expense (optional)' }
+        ]
+      case 'quickbooks_credit_card':
+        return [
+          { field: 'Credit Card', key: 'credit_card', default: '{ledgerLookup(gl_name_mercury_credit_card)}', description: 'Credit card account' },
+          { field: 'Date', key: 'date', default: '{txn.createdAt}', description: 'Transaction date' },
+          { field: 'Payee', key: 'payee', default: '{txn.counterpartyName}', description: 'Merchant/payee name' },
+          { field: 'Ref Number', key: 'ref_number', default: '{txn.id}', description: 'Reference number' },
+          { field: 'Account', key: 'account', default: '{txn.generalLedgerCodeName}', description: 'Expense account/GL code' },
+          { field: 'Amount', key: 'amount', default: '{txn.amount}', description: 'Transaction amount' },
+          { field: 'Customer:Job', key: 'customer_job', default: '{txn.categoryData.name}', description: 'Customer/Job for expense' },
+          { field: 'Expense Billable', key: 'expense_billable', default: '', description: 'Billable status (optional)' },
+          { field: 'Class', key: 'class', default: '', description: 'QuickBooks class (optional)' },
+          { field: 'Item', key: 'item', default: '', description: 'Item/Product (optional)' },
+          { field: 'Item Description', key: 'item_description', default: '', description: 'Item description (optional)' }
+        ]
+      default:
+        return []
+    }
+  }
+
   return (
     <div className="page">
       <h2 className="page-title">Settings</h2>
@@ -327,6 +554,18 @@ export default function Settings() {
               onClick={() => setActiveSection('presets')}
             >
               Ledger Presets
+            </button>
+            <button
+              className={`settings-nav-item ${activeSection === 'mercury-accounts' ? 'active' : ''}`}
+              onClick={() => setActiveSection('mercury-accounts')}
+            >
+              Mercury Accounts
+            </button>
+            <button
+              className={`settings-nav-item ${activeSection === 'csv-mappings' ? 'active' : ''}`}
+              onClick={() => setActiveSection('csv-mappings')}
+            >
+              CSV Mappings
             </button>
             <button
               className={`settings-nav-item ${activeSection === 'account' ? 'active' : ''}`}
@@ -774,6 +1013,291 @@ export default function Settings() {
                         </button>
                       </div>
                     </form>
+                  )}
+                </div>
+              </>
+            )}
+
+            {activeSection === 'mercury-accounts' && (
+              <>
+                <div className="settings-section">
+                  <h3 className="section-title">Mercury Account Ledger Mappings</h3>
+                  <p className="section-description">
+                    Assign ledger preset keys to your Mercury accounts. These mappings are used when
+                    exporting transactions to QuickBooks CSV format.
+                  </p>
+
+                  {companies.length > 0 && (
+                    <>
+                      <div className="form-group">
+                        <label htmlFor="mercuryAccountCompanySelect">Select Company</label>
+                        <select
+                          id="mercuryAccountCompanySelect"
+                          value={mercuryAccountCompany?.id || ''}
+                          onChange={(e) => {
+                            const company = companies.find((c) => c.id === Number(e.target.value))
+                            setMercuryAccountCompany(company || null)
+                            if (company) {
+                              loadMercuryAccounts(company.id)
+                            } else {
+                              setMercuryAccounts([])
+                              setMercuryAccountMappings({})
+                              setMercuryCompanyLedgerRecords({})
+                            }
+                            setMercuryMessage(null)
+                          }}
+                        >
+                          <option value="">-- Select a Company --</option>
+                          {companies.map((company) => (
+                            <option key={company.id} value={company.id}>
+                              {company.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {mercuryAccountCompany && (
+                        <>
+                          <button
+                            type="button"
+                            className="submit-button"
+                            onClick={handleSyncMercuryAccounts}
+                            disabled={isSyncingAccounts}
+                            style={{ marginBottom: '20px' }}
+                          >
+                            {isSyncingAccounts ? 'Syncing...' : 'Sync Accounts from Mercury'}
+                          </button>
+
+                          {mercuryMessage && (
+                            <div className={`message ${mercuryMessage.type}`} style={{ marginBottom: '20px' }}>
+                              {mercuryMessage.text}
+                            </div>
+                          )}
+
+                          {mercuryAccounts.filter(account => account.status?.toLowerCase() === 'active').length > 0 ? (
+                            <div>
+                              <h4 style={{ marginTop: 0, marginBottom: '16px', fontSize: '16px', color: '#2d3748' }}>
+                                Account Ledger Mappings
+                              </h4>
+                              {mercuryAccounts
+                                .filter(account => account.status?.toLowerCase() === 'active')
+                                .map((account) => {
+                                  const selectedPresetId = mercuryAccountMappings[account.id]
+                                  const selectedPreset = selectedPresetId
+                                    ? ledgerPresets.find(p => p.id === selectedPresetId)
+                                    : null
+                                  const ledgerRecordValue = selectedPreset
+                                    ? mercuryCompanyLedgerRecords[selectedPreset.key]
+                                    : null
+
+                                  return (
+                                    <div key={account.id} className="current-key-info" style={{ marginBottom: '16px' }}>
+                                      <div className="info-row">
+                                        <span className="info-label">Account Name:</span>
+                                        <span className="info-value">{account.name}</span>
+                                      </div>
+                                      {account.nickname && (
+                                        <div className="info-row">
+                                          <span className="info-label">Nickname:</span>
+                                          <span className="info-value">{account.nickname}</span>
+                                        </div>
+                                      )}
+                                      <div className="info-row">
+                                        <span className="info-label">Type:</span>
+                                        <span className="info-value">{account.account_type || 'N/A'}</span>
+                                      </div>
+                                      {selectedPreset && ledgerRecordValue && (
+                                        <div className="info-row">
+                                          <span className="info-label">Ledger Value:</span>
+                                          <span className="info-value" style={{ fontWeight: 600, color: '#667eea' }}>
+                                            {ledgerRecordValue}
+                                          </span>
+                                        </div>
+                                      )}
+                                      <div className="form-group" style={{ marginTop: '12px' }}>
+                                        <label htmlFor={`ledger-preset-${account.id}`}>
+                                          Assign Ledger Preset
+                                        </label>
+                                        <select
+                                          id={`ledger-preset-${account.id}`}
+                                          value={mercuryAccountMappings[account.id] || ''}
+                                          onChange={(e) => {
+                                            const presetId = Number(e.target.value)
+                                            if (presetId) {
+                                              handleSetLedgerMapping(account.id, presetId)
+                                            }
+                                          }}
+                                        >
+                                          <option value="">-- Select a Ledger Preset --</option>
+                                          {ledgerPresets.map((preset) => (
+                                            <option key={preset.id} value={preset.id}>
+                                              {preset.label}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                            </div>
+                          ) : (
+                            <p style={{ color: '#718096', fontSize: '14px' }}>
+                              No active accounts found. Click "Sync Accounts from Mercury" to load accounts from the API.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {companies.length === 0 && (
+                    <p style={{ color: '#718096', fontSize: '14px' }}>
+                      No companies configured. Please add a company in the "Companies & API Keys" section first.
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+
+            {activeSection === 'csv-mappings' && (
+              <>
+                <div className="settings-section">
+                  <h3 className="section-title">QuickBooks CSV Mappings</h3>
+                  <p className="section-description">
+                    Configure custom field mappings for QuickBooks CSV exports. Use template variables like {`{txn.amount}`}, {`{txn.bankDescription}`}, {`{txn.counterpartyName}`}, etc.
+                  </p>
+
+                  {companies.length > 0 && (
+                    <>
+                      <div className="form-group">
+                        <label htmlFor="csvMappingCompanySelect">Select Company</label>
+                        <select
+                          id="csvMappingCompanySelect"
+                          value={csvMappingCompany?.id || ''}
+                          onChange={(e) => {
+                            const company = companies.find((c) => c.id === Number(e.target.value))
+                            setCsvMappingCompany(company || null)
+                            if (company) {
+                              loadCsvMappings(company.id, csvExportType)
+                            } else {
+                              setCsvMappings({})
+                            }
+                            setCsvMappingMessage(null)
+                          }}
+                          className="filter-input"
+                          style={{ width: '100%' }}
+                        >
+                          <option value="">-- Select a company --</option>
+                          {companies.map((company) => (
+                            <option key={company.id} value={company.id}>
+                              {company.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {csvMappingCompany && (
+                        <>
+                          <div className="form-group">
+                            <label htmlFor="csvExportTypeSelect">Export Type</label>
+                            <select
+                              id="csvExportTypeSelect"
+                              value={csvExportType}
+                              onChange={(e) => {
+                                const newExportType = e.target.value as 'quickbooks_deposits' | 'quickbooks_checks' | 'quickbooks_credit_card'
+                                setCsvExportType(newExportType)
+                                loadCsvMappings(csvMappingCompany.id, newExportType)
+                                setCsvMappingMessage(null)
+                              }}
+                              className="filter-input"
+                              style={{ width: '100%' }}
+                            >
+                              <option value="quickbooks_deposits">QuickBooks Deposits</option>
+                              <option value="quickbooks_checks">QuickBooks Checks</option>
+                              <option value="quickbooks_credit_card">QuickBooks Credit Card</option>
+                            </select>
+                          </div>
+
+                          <div style={{ marginTop: '20px' }}>
+                            <h4 style={{ marginTop: 0, marginBottom: '16px', fontSize: '16px', color: '#2d3748' }}>
+                              Field Mappings
+                            </h4>
+                            <div style={{ fontSize: '12px', color: '#718096', marginBottom: '16px', lineHeight: '1.6' }}>
+                              <p style={{ marginTop: 0, marginBottom: '8px' }}>
+                                <strong>Transaction Variables:</strong> {`{txn.amount}`}, {`{txn.createdAt}`}, {`{txn.bankDescription}`}, {`{txn.counterpartyName}`}, {`{txn.categoryData.name}`}, {`{txn.generalLedgerCodeName}`}
+                              </p>
+                              <p style={{ marginTop: 0, marginBottom: '8px' }}>
+                                <strong>Ledger Variables:</strong> {`{glNameMercuryChecking}`}, {`{glNameMercuryCreditCard}`}
+                              </p>
+                              <p style={{ marginTop: 0, marginBottom: '8px' }}>
+                                <strong>Ledger Lookup Function:</strong> {`{ledgerLookup(gl_name_mercury_checking)}`} - Looks up a ledger record by key for the current company
+                              </p>
+                              <p style={{ marginTop: 0, marginBottom: '8px' }}>
+                                <strong>Account Lookup Function:</strong> {`{lookup:counterpartyName}`} - Dynamically looks up the ledger record value for a Mercury account based on the transaction's counterparty name
+                              </p>
+                              <p style={{ marginTop: 0, marginBottom: '8px' }}>
+                                <strong>Or Function:</strong> {`{or(lookup:counterpartyName, ledgerLookup(gl_name_mercury_checking), txn.generalLedgerCodeName)}`} - Returns the first non-empty value from the list
+                              </p>
+                              <p style={{ marginTop: 0, marginBottom: '8px' }}>
+                                <strong>If Function:</strong> {`{if(txn.counterpartyName=="Mercury Checking", value1, value2)}`} - Returns value1 if condition is true, otherwise value2. String literals must be quoted. Supports == and != operators
+                              </p>
+                              <p style={{ marginTop: 0, marginBottom: '8px' }}>
+                                <strong>Ledger Preset Key Function:</strong> {`{ledgerPresetKey(lookup:counterpartyName)}`} - Returns the ledger preset key for a Mercury account. Can be nested: {`{ledgerLookup(ledgerPresetKey(lookup:counterpartyName))}`}
+                              </p>
+                              <p style={{ marginTop: 0, marginBottom: 0, color: '#718096', fontSize: '13px', fontStyle: 'italic' }}>
+                                Note: Templates can be written on multiple lines for readability. All whitespace and line breaks will be automatically removed when saved.
+                              </p>
+                            </div>
+
+                            {getCsvFieldsForExportType(csvExportType).map((field) => (
+                              <div key={field.key} className="form-group">
+                                <label htmlFor={field.key}>
+                                  {field.field}
+                                  <small style={{ display: 'block', fontWeight: 'normal', color: '#718096', marginTop: '4px' }}>
+                                    {field.description}
+                                  </small>
+                                </label>
+                                <textarea
+                                  id={field.key}
+                                  value={csvMappings[field.key] ?? field.default}
+                                  onChange={(e) => handleCsvMappingChange(field.key, e.target.value)}
+                                  placeholder={field.default}
+                                  disabled={isLoading}
+                                  rows={3}
+                                  style={{
+                                    width: '100%',
+                                    fontFamily: 'monospace',
+                                    fontSize: '13px',
+                                    resize: 'vertical',
+                                    minHeight: '60px'
+                                  }}
+                                />
+                              </div>
+                            ))}
+
+                            {csvMappingMessage && (
+                              <div className={`message ${csvMappingMessage.type}`}>{csvMappingMessage.text}</div>
+                            )}
+
+                            <button
+                              type="button"
+                              className="submit-button"
+                              onClick={handleSaveCsvMappings}
+                              disabled={isLoading}
+                              style={{ marginTop: '12px' }}
+                            >
+                              {isLoading ? 'Saving...' : 'Save CSV Mappings'}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {companies.length === 0 && (
+                    <p style={{ color: '#718096', fontStyle: 'italic' }}>
+                      Please add a company first to configure CSV mappings.
+                    </p>
                   )}
                 </div>
               </>

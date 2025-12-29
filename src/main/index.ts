@@ -10,8 +10,8 @@ import log from 'electron-log'
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1800,
+    height: 1005,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -36,6 +36,42 @@ function createWindow(): void {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+}
+
+function createCompanyReportsWindow(companyId: number, companyName: string): void {
+  // Create a new window for company reports
+  const reportsWindow = new BrowserWindow({
+    width: 2000,
+    height: 700,
+    x: 50,
+    y: 50,
+    show: false,
+    autoHideMenuBar: true,
+    title: `${companyName} - Reports`,
+    ...(process.platform === 'linux' ? { icon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  reportsWindow.on('ready-to-show', () => {
+    reportsWindow.show()
+  })
+
+  reportsWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  // Load the app with a hash parameter to indicate company and page
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    reportsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#reports?companyId=${companyId}`)
+  } else {
+    reportsWindow.loadFile(join(__dirname, '../renderer/index.html'), {
+      hash: `reports?companyId=${companyId}`
+    })
   }
 }
 
@@ -65,6 +101,17 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => log.info('pong'))
+
+  // IPC handler to open company reports in new window
+  ipcMain.handle('window:openCompanyReports', async (_event, companyId: number, companyName: string) => {
+    try {
+      createCompanyReportsWindow(companyId, companyName)
+      return { success: true }
+    } catch (error) {
+      log.error('Failed to open company reports window:', error)
+      return { success: false, error: 'Failed to open window' }
+    }
+  })
 
   createWindow()
 

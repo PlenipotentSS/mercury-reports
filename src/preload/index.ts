@@ -55,7 +55,28 @@ const api = {
   ledgerPresetGetAll: () => ipcRenderer.invoke('ledgerPreset:getAll'),
   ledgerPresetUpdate: (id: number, key: string, label: string, description?: string) =>
     ipcRenderer.invoke('ledgerPreset:update', id, key, label, description),
-  ledgerPresetDelete: (id: number) => ipcRenderer.invoke('ledgerPreset:delete', id)
+  ledgerPresetDelete: (id: number) => ipcRenderer.invoke('ledgerPreset:delete', id),
+
+  // Mercury Accounts
+  mercuryAccountSyncFromApi: (companyId: number, apiKey: string) =>
+    ipcRenderer.invoke('mercuryAccount:syncFromApi', companyId, apiKey),
+  mercuryAccountGetByCompanyId: (companyId: number) =>
+    ipcRenderer.invoke('mercuryAccount:getByCompanyId', companyId),
+  mercuryAccountSetLedgerMapping: (mercuryAccountId: number, ledgerPresetId: number) =>
+    ipcRenderer.invoke('mercuryAccount:setLedgerMapping', mercuryAccountId, ledgerPresetId),
+  mercuryAccountGetLedgerMappings: (mercuryAccountId: number) =>
+    ipcRenderer.invoke('mercuryAccount:getLedgerMappings', mercuryAccountId),
+
+  // CSV Mappings
+  csvMappingGetByCompanyAndType: (companyId: number, exportType: string) =>
+    ipcRenderer.invoke('csvMapping:getByCompanyAndType', companyId, exportType),
+  csvMappingUpsert: (companyId: number, exportType: string, fieldName: string, template: string) =>
+    ipcRenderer.invoke('csvMapping:upsert', companyId, exportType, fieldName, template),
+  csvMappingDelete: (id: number) => ipcRenderer.invoke('csvMapping:delete', id),
+
+  // Window management
+  windowOpenCompanyReports: (companyId: number, companyName: string) =>
+    ipcRenderer.invoke('window:openCompanyReports', companyId, companyName)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

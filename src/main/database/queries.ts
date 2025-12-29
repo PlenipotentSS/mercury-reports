@@ -391,3 +391,266 @@ export function deleteLedgerPreset(id: number): void {
   const stmt = db.prepare('DELETE FROM ledger_presets WHERE id = ?')
   stmt.run(id)
 }
+
+// Mercury Account queries
+export interface MercuryAccount {
+  id: number
+  company_id: number
+  external_id: string
+  name: string
+  nickname: string | null
+  dashboard_link: string | null
+  status: string | null
+  account_type: string | null
+  created_at: string
+  updated_at: string
+}
+
+export function createMercuryAccount(
+  companyId: number,
+  externalId: string,
+  name: string,
+  nickname?: string,
+  dashboardLink?: string,
+  status?: string,
+  accountType?: string
+): number {
+  const db = getDatabase()
+  const stmt = db.prepare(`
+    INSERT INTO mercury_accounts (company_id, external_id, name, nickname, dashboard_link, status, account_type)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `)
+  const result = stmt.run(
+    companyId,
+    externalId,
+    name,
+    nickname ?? null,
+    dashboardLink ?? null,
+    status ?? null,
+    accountType ?? null
+  )
+  return result.lastInsertRowid as number
+}
+
+export function getMercuryAccountById(id: number): MercuryAccount | undefined {
+  const db = getDatabase()
+  const stmt = db.prepare('SELECT * FROM mercury_accounts WHERE id = ?')
+  return stmt.get(id) as MercuryAccount | undefined
+}
+
+export function getMercuryAccountsByCompanyId(companyId: number): MercuryAccount[] {
+  const db = getDatabase()
+  const stmt = db.prepare('SELECT * FROM mercury_accounts WHERE company_id = ? ORDER BY name')
+  return stmt.all(companyId) as MercuryAccount[]
+}
+
+export function getMercuryAccountByExternalId(
+  companyId: number,
+  externalId: string
+): MercuryAccount | undefined {
+  const db = getDatabase()
+  const stmt = db.prepare(
+    'SELECT * FROM mercury_accounts WHERE company_id = ? AND external_id = ?'
+  )
+  return stmt.get(companyId, externalId) as MercuryAccount | undefined
+}
+
+export function updateMercuryAccount(
+  id: number,
+  name: string,
+  nickname?: string,
+  dashboardLink?: string,
+  status?: string,
+  accountType?: string
+): void {
+  const db = getDatabase()
+  const stmt = db.prepare(`
+    UPDATE mercury_accounts
+    SET name = ?, nickname = ?, dashboard_link = ?, status = ?, account_type = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `)
+  stmt.run(name, nickname ?? null, dashboardLink ?? null, status ?? null, accountType ?? null, id)
+}
+
+export function upsertMercuryAccount(
+  companyId: number,
+  externalId: string,
+  name: string,
+  nickname?: string,
+  dashboardLink?: string,
+  status?: string,
+  accountType?: string
+): number {
+  const existing = getMercuryAccountByExternalId(companyId, externalId)
+  if (existing) {
+    updateMercuryAccount(existing.id, name, nickname, dashboardLink, status, accountType)
+    return existing.id
+  }
+  return createMercuryAccount(companyId, externalId, name, nickname, dashboardLink, status, accountType)
+}
+
+export function deleteMercuryAccount(id: number): void {
+  const db = getDatabase()
+  const stmt = db.prepare('DELETE FROM mercury_accounts WHERE id = ?')
+  stmt.run(id)
+}
+
+export function deleteMercuryAccountsByCompanyId(companyId: number): void {
+  const db = getDatabase()
+  const stmt = db.prepare('DELETE FROM mercury_accounts WHERE company_id = ?')
+  stmt.run(companyId)
+}
+
+// Account Ledger Mapping queries
+export interface AccountLedgerMapping {
+  id: number
+  mercury_account_id: number
+  ledger_preset_id: number
+  created_at: string
+  updated_at: string
+}
+
+export function createAccountLedgerMapping(
+  mercuryAccountId: number,
+  ledgerPresetId: number
+): number {
+  const db = getDatabase()
+  const stmt = db.prepare(`
+    INSERT INTO account_ledger_mappings (mercury_account_id, ledger_preset_id)
+    VALUES (?, ?)
+  `)
+  const result = stmt.run(mercuryAccountId, ledgerPresetId)
+  return result.lastInsertRowid as number
+}
+
+export function getAccountLedgerMappingsByAccountId(
+  mercuryAccountId: number
+): AccountLedgerMapping[] {
+  const db = getDatabase()
+  const stmt = db.prepare(
+    'SELECT * FROM account_ledger_mappings WHERE mercury_account_id = ?'
+  )
+  return stmt.all(mercuryAccountId) as AccountLedgerMapping[]
+}
+
+export function deleteAccountLedgerMapping(id: number): void {
+  const db = getDatabase()
+  const stmt = db.prepare('DELETE FROM account_ledger_mappings WHERE id = ?')
+  stmt.run(id)
+}
+
+export function deleteAccountLedgerMappingsByAccountId(mercuryAccountId: number): void {
+  const db = getDatabase()
+  const stmt = db.prepare('DELETE FROM account_ledger_mappings WHERE mercury_account_id = ?')
+  stmt.run(mercuryAccountId)
+}
+
+export function setAccountLedgerMapping(
+  mercuryAccountId: number,
+  ledgerPresetId: number
+): void {
+  const db = getDatabase()
+  // Delete existing mappings for this account
+  const deleteStmt = db.prepare('DELETE FROM account_ledger_mappings WHERE mercury_account_id = ?')
+  deleteStmt.run(mercuryAccountId)
+  // Create new mapping
+  const insertStmt = db.prepare(`
+    INSERT INTO account_ledger_mappings (mercury_account_id, ledger_preset_id)
+    VALUES (?, ?)
+  `)
+  insertStmt.run(mercuryAccountId, ledgerPresetId)
+}
+
+// CSV Mapping queries
+export interface CsvMapping {
+  id: number
+  company_id: number
+  export_type: string
+  field_name: string
+  template: string
+  created_at: string
+  updated_at: string
+}
+
+export function createCsvMapping(
+  companyId: number,
+  exportType: string,
+  fieldName: string,
+  template: string
+): number {
+  const db = getDatabase()
+  const stmt = db.prepare(`
+    INSERT INTO csv_mappings (company_id, export_type, field_name, template)
+    VALUES (?, ?, ?, ?)
+  `)
+  const result = stmt.run(companyId, exportType, fieldName, template)
+  return result.lastInsertRowid as number
+}
+
+export function getCsvMappingById(id: number): CsvMapping | undefined {
+  const db = getDatabase()
+  const stmt = db.prepare('SELECT * FROM csv_mappings WHERE id = ?')
+  return stmt.get(id) as CsvMapping | undefined
+}
+
+export function getCsvMappingsByCompanyAndType(
+  companyId: number,
+  exportType: string
+): CsvMapping[] {
+  const db = getDatabase()
+  const stmt = db.prepare(
+    'SELECT * FROM csv_mappings WHERE company_id = ? AND export_type = ? ORDER BY field_name'
+  )
+  return stmt.all(companyId, exportType) as CsvMapping[]
+}
+
+export function getCsvMapping(
+  companyId: number,
+  exportType: string,
+  fieldName: string
+): CsvMapping | undefined {
+  const db = getDatabase()
+  const stmt = db.prepare(
+    'SELECT * FROM csv_mappings WHERE company_id = ? AND export_type = ? AND field_name = ?'
+  )
+  return stmt.get(companyId, exportType, fieldName) as CsvMapping | undefined
+}
+
+export function updateCsvMapping(
+  id: number,
+  template: string
+): void {
+  const db = getDatabase()
+  const stmt = db.prepare(`
+    UPDATE csv_mappings
+    SET template = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `)
+  stmt.run(template, id)
+}
+
+export function upsertCsvMapping(
+  companyId: number,
+  exportType: string,
+  fieldName: string,
+  template: string
+): void {
+  const existing = getCsvMapping(companyId, exportType, fieldName)
+  if (existing) {
+    updateCsvMapping(existing.id, template)
+  } else {
+    createCsvMapping(companyId, exportType, fieldName, template)
+  }
+}
+
+export function deleteCsvMapping(id: number): void {
+  const db = getDatabase()
+  const stmt = db.prepare('DELETE FROM csv_mappings WHERE id = ?')
+  stmt.run(id)
+}
+
+export function deleteCsvMappingsByCompany(companyId: number): void {
+  const db = getDatabase()
+  const stmt = db.prepare('DELETE FROM csv_mappings WHERE company_id = ?')
+  stmt.run(companyId)
+}

@@ -130,7 +130,7 @@ const createCompaniesTable = {
     db2.exec("DROP TABLE IF EXISTS companies");
   }
 };
-function up$1(db2) {
+function up$4(db2) {
   db2.exec(`
     CREATE TABLE IF NOT EXISTS company_ledger_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -147,14 +147,14 @@ function up$1(db2) {
     CREATE INDEX idx_company_ledger_records_key ON company_ledger_records(key);
   `);
 }
-function down$1(db2) {
+function down$4(db2) {
   db2.exec(`
     DROP INDEX IF EXISTS idx_company_ledger_records_key;
     DROP INDEX IF EXISTS idx_company_ledger_records_company_id;
     DROP TABLE IF EXISTS company_ledger_records;
   `);
 }
-function up(db2) {
+function up$3(db2) {
   db2.exec(`
     CREATE TABLE IF NOT EXISTS ledger_presets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,10 +182,86 @@ function up(db2) {
     "General ledger name for Mercury credit card transactions"
   );
 }
-function down(db2) {
+function down$3(db2) {
   db2.exec(`
     DROP INDEX IF EXISTS idx_ledger_presets_key;
     DROP TABLE IF EXISTS ledger_presets;
+  `);
+}
+function up$2(db2) {
+  db2.exec(`
+    CREATE TABLE IF NOT EXISTS mercury_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company_id INTEGER NOT NULL,
+      external_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      nickname TEXT,
+      dashboard_link TEXT,
+      status TEXT,
+      account_type TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+      UNIQUE(company_id, external_id)
+    );
+
+    CREATE INDEX idx_mercury_accounts_company_id ON mercury_accounts(company_id);
+    CREATE INDEX idx_mercury_accounts_external_id ON mercury_accounts(external_id);
+  `);
+}
+function down$2(db2) {
+  db2.exec(`
+    DROP INDEX IF EXISTS idx_mercury_accounts_external_id;
+    DROP INDEX IF EXISTS idx_mercury_accounts_company_id;
+    DROP TABLE IF EXISTS mercury_accounts;
+  `);
+}
+function up$1(db2) {
+  db2.exec(`
+    CREATE TABLE IF NOT EXISTS account_ledger_mappings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mercury_account_id INTEGER NOT NULL,
+      ledger_preset_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (mercury_account_id) REFERENCES mercury_accounts(id) ON DELETE CASCADE,
+      FOREIGN KEY (ledger_preset_id) REFERENCES ledger_presets(id) ON DELETE CASCADE,
+      UNIQUE(mercury_account_id, ledger_preset_id)
+    );
+
+    CREATE INDEX idx_account_ledger_mappings_mercury_account ON account_ledger_mappings(mercury_account_id);
+    CREATE INDEX idx_account_ledger_mappings_ledger_preset ON account_ledger_mappings(ledger_preset_id);
+  `);
+}
+function down$1(db2) {
+  db2.exec(`
+    DROP INDEX IF EXISTS idx_account_ledger_mappings_ledger_preset;
+    DROP INDEX IF EXISTS idx_account_ledger_mappings_mercury_account;
+    DROP TABLE IF EXISTS account_ledger_mappings;
+  `);
+}
+function up(db2) {
+  db2.exec(`
+    CREATE TABLE IF NOT EXISTS csv_mappings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company_id INTEGER NOT NULL,
+      export_type TEXT NOT NULL,
+      field_name TEXT NOT NULL,
+      template TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+      UNIQUE(company_id, export_type, field_name)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_csv_mappings_company_export
+      ON csv_mappings(company_id, export_type);
+  `);
+}
+function down(db2) {
+  db2.exec(`
+    DROP INDEX IF EXISTS idx_csv_mappings_company_export;
+    DROP TABLE IF EXISTS csv_mappings;
   `);
 }
 const migrations = [
@@ -196,12 +272,30 @@ const migrations = [
   {
     id: 5,
     name: "create_company_ledger_records_table",
-    up: up$1,
-    down: down$1
+    up: up$4,
+    down: down$4
   },
   {
     id: 6,
     name: "create_ledger_presets_table",
+    up: up$3,
+    down: down$3
+  },
+  {
+    id: 7,
+    name: "create_mercury_accounts_table",
+    up: up$2,
+    down: down$2
+  },
+  {
+    id: 8,
+    name: "create_account_ledger_mappings_table",
+    up: up$1,
+    down: down$1
+  },
+  {
+    id: 9,
+    name: "create_csv_mappings_table",
     up,
     down
   }
@@ -407,6 +501,114 @@ function updateLedgerPreset(id, key, label, description) {
 function deleteLedgerPreset(id) {
   const db2 = getDatabase();
   const stmt = db2.prepare("DELETE FROM ledger_presets WHERE id = ?");
+  stmt.run(id);
+}
+function createMercuryAccount(companyId, externalId, name, nickname, dashboardLink, status, accountType) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(`
+    INSERT INTO mercury_accounts (company_id, external_id, name, nickname, dashboard_link, status, account_type)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  const result = stmt.run(
+    companyId,
+    externalId,
+    name,
+    nickname ?? null,
+    dashboardLink ?? null,
+    status ?? null,
+    accountType ?? null
+  );
+  return result.lastInsertRowid;
+}
+function getMercuryAccountsByCompanyId(companyId) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare("SELECT * FROM mercury_accounts WHERE company_id = ? ORDER BY name");
+  return stmt.all(companyId);
+}
+function getMercuryAccountByExternalId(companyId, externalId) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(
+    "SELECT * FROM mercury_accounts WHERE company_id = ? AND external_id = ?"
+  );
+  return stmt.get(companyId, externalId);
+}
+function updateMercuryAccount(id, name, nickname, dashboardLink, status, accountType) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(`
+    UPDATE mercury_accounts
+    SET name = ?, nickname = ?, dashboard_link = ?, status = ?, account_type = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `);
+  stmt.run(name, nickname ?? null, dashboardLink ?? null, status ?? null, accountType ?? null, id);
+}
+function upsertMercuryAccount(companyId, externalId, name, nickname, dashboardLink, status, accountType) {
+  const existing = getMercuryAccountByExternalId(companyId, externalId);
+  if (existing) {
+    updateMercuryAccount(existing.id, name, nickname, dashboardLink, status, accountType);
+    return existing.id;
+  }
+  return createMercuryAccount(companyId, externalId, name, nickname, dashboardLink, status, accountType);
+}
+function getAccountLedgerMappingsByAccountId(mercuryAccountId) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(
+    "SELECT * FROM account_ledger_mappings WHERE mercury_account_id = ?"
+  );
+  return stmt.all(mercuryAccountId);
+}
+function setAccountLedgerMapping(mercuryAccountId, ledgerPresetId) {
+  const db2 = getDatabase();
+  const deleteStmt = db2.prepare("DELETE FROM account_ledger_mappings WHERE mercury_account_id = ?");
+  deleteStmt.run(mercuryAccountId);
+  const insertStmt = db2.prepare(`
+    INSERT INTO account_ledger_mappings (mercury_account_id, ledger_preset_id)
+    VALUES (?, ?)
+  `);
+  insertStmt.run(mercuryAccountId, ledgerPresetId);
+}
+function createCsvMapping(companyId, exportType, fieldName, template) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(`
+    INSERT INTO csv_mappings (company_id, export_type, field_name, template)
+    VALUES (?, ?, ?, ?)
+  `);
+  const result = stmt.run(companyId, exportType, fieldName, template);
+  return result.lastInsertRowid;
+}
+function getCsvMappingsByCompanyAndType(companyId, exportType) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(
+    "SELECT * FROM csv_mappings WHERE company_id = ? AND export_type = ? ORDER BY field_name"
+  );
+  return stmt.all(companyId, exportType);
+}
+function getCsvMapping(companyId, exportType, fieldName) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(
+    "SELECT * FROM csv_mappings WHERE company_id = ? AND export_type = ? AND field_name = ?"
+  );
+  return stmt.get(companyId, exportType, fieldName);
+}
+function updateCsvMapping(id, template) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare(`
+    UPDATE csv_mappings
+    SET template = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `);
+  stmt.run(template, id);
+}
+function upsertCsvMapping(companyId, exportType, fieldName, template) {
+  const existing = getCsvMapping(companyId, exportType, fieldName);
+  if (existing) {
+    updateCsvMapping(existing.id, template);
+  } else {
+    createCsvMapping(companyId, exportType, fieldName, template);
+  }
+}
+function deleteCsvMapping(id) {
+  const db2 = getDatabase();
+  const stmt = db2.prepare("DELETE FROM csv_mappings WHERE id = ?");
   stmt.run(id);
 }
 function registerIpcHandlers() {
@@ -703,11 +905,117 @@ function registerIpcHandlers() {
       return { success: false, error: "Failed to delete ledger preset" };
     }
   });
+  electron.ipcMain.handle("mercuryAccount:syncFromApi", async (_event, companyId, apiKey) => {
+    try {
+      const url = "https://api.mercury.com/api/v1/accounts";
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch accounts: ${response.statusText}`);
+      }
+      const data = await response.json();
+      const syncedAccounts = [];
+      if (data.accounts && Array.isArray(data.accounts)) {
+        for (const account of data.accounts) {
+          const accountId = upsertMercuryAccount(
+            companyId,
+            account.id,
+            account.name || account.legalBusinessName || "Unnamed Account",
+            account.nickname,
+            account.dashboardLink,
+            account.status,
+            account.type
+          );
+          syncedAccounts.push(accountId);
+        }
+      }
+      return { success: true, syncedCount: syncedAccounts.length };
+    } catch (error) {
+      log.error("Sync Mercury accounts error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to sync Mercury accounts"
+      };
+    }
+  });
+  electron.ipcMain.handle("mercuryAccount:getByCompanyId", async (_event, companyId) => {
+    try {
+      const accounts = getMercuryAccountsByCompanyId(companyId);
+      return { success: true, accounts };
+    } catch (error) {
+      log.error("Get Mercury accounts error:", error);
+      return { success: false, error: "Failed to get Mercury accounts" };
+    }
+  });
+  electron.ipcMain.handle(
+    "mercuryAccount:setLedgerMapping",
+    async (_event, mercuryAccountId, ledgerPresetId) => {
+      try {
+        setAccountLedgerMapping(mercuryAccountId, ledgerPresetId);
+        return { success: true };
+      } catch (error) {
+        log.error("Set account ledger mapping error:", error);
+        return { success: false, error: "Failed to set ledger mapping" };
+      }
+    }
+  );
+  electron.ipcMain.handle(
+    "mercuryAccount:getLedgerMappings",
+    async (_event, mercuryAccountId) => {
+      try {
+        const mappings = getAccountLedgerMappingsByAccountId(mercuryAccountId);
+        return { success: true, mappings };
+      } catch (error) {
+        log.error("Get account ledger mappings error:", error);
+        return { success: false, error: "Failed to get ledger mappings" };
+      }
+    }
+  );
+  electron.ipcMain.handle(
+    "csvMapping:getByCompanyAndType",
+    async (_event, companyId, exportType) => {
+      try {
+        const mappings = getCsvMappingsByCompanyAndType(companyId, exportType);
+        return { success: true, mappings };
+      } catch (error) {
+        log.error("Get CSV mappings error:", error);
+        return { success: false, error: "Failed to get CSV mappings" };
+      }
+    }
+  );
+  electron.ipcMain.handle(
+    "csvMapping:upsert",
+    async (_event, companyId, exportType, fieldName, template) => {
+      try {
+        log.info(`Upserting CSV mapping: companyId=${companyId}, exportType=${exportType}, fieldName=${fieldName}, template=${template}`);
+        upsertCsvMapping(companyId, exportType, fieldName, template);
+        log.info("CSV mapping upserted successfully");
+        return { success: true };
+      } catch (error) {
+        log.error("Upsert CSV mapping error:", error);
+        return { success: false, error: "Failed to save CSV mapping" };
+      }
+    }
+  );
+  electron.ipcMain.handle("csvMapping:delete", async (_event, id) => {
+    try {
+      deleteCsvMapping(id);
+      return { success: true };
+    } catch (error) {
+      log.error("Delete CSV mapping error:", error);
+      return { success: false, error: "Failed to delete CSV mapping" };
+    }
+  });
 }
 function createWindow() {
   const mainWindow = new electron.BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1800,
+    height: 1005,
     show: false,
     autoHideMenuBar: true,
     ...process.platform === "linux" ? { icon } : {},
@@ -729,6 +1037,36 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
 }
+function createCompanyReportsWindow(companyId, companyName) {
+  const reportsWindow = new electron.BrowserWindow({
+    width: 2e3,
+    height: 700,
+    x: 50,
+    y: 50,
+    show: false,
+    autoHideMenuBar: true,
+    title: `${companyName} - Reports`,
+    ...process.platform === "linux" ? { icon } : {},
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/index.js"),
+      sandbox: false
+    }
+  });
+  reportsWindow.on("ready-to-show", () => {
+    reportsWindow.show();
+  });
+  reportsWindow.webContents.setWindowOpenHandler((details) => {
+    electron.shell.openExternal(details.url);
+    return { action: "deny" };
+  });
+  if (utils.is.dev && process.env["ELECTRON_RENDERER_URL"]) {
+    reportsWindow.loadURL(`${process.env["ELECTRON_RENDERER_URL"]}#reports?companyId=${companyId}`);
+  } else {
+    reportsWindow.loadFile(path.join(__dirname, "../renderer/index.html"), {
+      hash: `reports?companyId=${companyId}`
+    });
+  }
+}
 electron.app.whenReady().then(() => {
   utils.electronApp.setAppUserModelId("com.electron");
   try {
@@ -741,6 +1079,15 @@ electron.app.whenReady().then(() => {
     utils.optimizer.watchWindowShortcuts(window);
   });
   electron.ipcMain.on("ping", () => log.info("pong"));
+  electron.ipcMain.handle("window:openCompanyReports", async (_event, companyId, companyName) => {
+    try {
+      createCompanyReportsWindow(companyId, companyName);
+      return { success: true };
+    } catch (error) {
+      log.error("Failed to open company reports window:", error);
+      return { success: false, error: "Failed to open window" };
+    }
+  });
   createWindow();
   electron.app.on("activate", function() {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();

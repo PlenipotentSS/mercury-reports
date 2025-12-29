@@ -24,7 +24,14 @@ import {
   getLedgerPresetByKey,
   getAllLedgerPresets,
   updateLedgerPreset,
-  deleteLedgerPreset
+  deleteLedgerPreset,
+  upsertMercuryAccount,
+  getMercuryAccountsByCompanyId,
+  setAccountLedgerMapping,
+  getAccountLedgerMappingsByAccountId,
+  getCsvMappingsByCompanyAndType,
+  upsertCsvMapping,
+  deleteCsvMapping
 } from './database/queries'
 import log from 'electron-log'
 
@@ -364,6 +371,127 @@ export function registerIpcHandlers(): void {
     } catch (error) {
       log.error('Delete ledger preset error:', error)
       return { success: false, error: 'Failed to delete ledger preset' }
+    }
+  })
+
+  // Mercury Account handlers
+  ipcMain.handle('mercuryAccount:syncFromApi', async (_event, companyId: number, apiKey: string) => {
+    try {
+      const url = 'https://api.mercury.com/api/v1/accounts'
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch accounts: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+
+      // Sync accounts to database
+      const syncedAccounts: number[] = []
+      if (data.accounts && Array.isArray(data.accounts)) {
+        for (const account of data.accounts) {
+          const accountId = upsertMercuryAccount(
+            companyId,
+            account.id,
+            account.name || account.legalBusinessName || 'Unnamed Account',
+            account.nickname,
+            account.dashboardLink,
+            account.status,
+            account.type
+          )
+          syncedAccounts.push(accountId)
+        }
+      }
+
+      return { success: true, syncedCount: syncedAccounts.length }
+    } catch (error) {
+      log.error('Sync Mercury accounts error:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to sync Mercury accounts'
+      }
+    }
+  })
+
+  ipcMain.handle('mercuryAccount:getByCompanyId', async (_event, companyId: number) => {
+    try {
+      const accounts = getMercuryAccountsByCompanyId(companyId)
+      return { success: true, accounts }
+    } catch (error) {
+      log.error('Get Mercury accounts error:', error)
+      return { success: false, error: 'Failed to get Mercury accounts' }
+    }
+  })
+
+  ipcMain.handle(
+    'mercuryAccount:setLedgerMapping',
+    async (_event, mercuryAccountId: number, ledgerPresetId: number) => {
+      try {
+        setAccountLedgerMapping(mercuryAccountId, ledgerPresetId)
+        return { success: true }
+      } catch (error) {
+        log.error('Set account ledger mapping error:', error)
+        return { success: false, error: 'Failed to set ledger mapping' }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'mercuryAccount:getLedgerMappings',
+    async (_event, mercuryAccountId: number) => {
+      try {
+        const mappings = getAccountLedgerMappingsByAccountId(mercuryAccountId)
+        return { success: true, mappings }
+      } catch (error) {
+        log.error('Get account ledger mappings error:', error)
+        return { success: false, error: 'Failed to get ledger mappings' }
+      }
+    }
+  )
+
+  // CSV Mapping handlers
+  ipcMain.handle(
+    'csvMapping:getByCompanyAndType',
+    async (_event, companyId: number, exportType: string) => {
+      try {
+        const mappings = getCsvMappingsByCompanyAndType(companyId, exportType)
+        return { success: true, mappings }
+      } catch (error) {
+        log.error('Get CSV mappings error:', error)
+        return { success: false, error: 'Failed to get CSV mappings' }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'csvMapping:upsert',
+    async (_event, companyId: number, exportType: string, fieldName: string, template: string) => {
+      try {
+        log.info(`Upserting CSV mapping: companyId=${companyId}, exportType=${exportType}, fieldName=${fieldName}, template=${template}`)
+        upsertCsvMapping(companyId, exportType, fieldName, template)
+        log.info('CSV mapping upserted successfully')
+        return { success: true }
+      } catch (error) {
+        log.error('Upsert CSV mapping error:', error)
+        return { success: false, error: 'Failed to save CSV mapping' }
+      }
+    }
+  )
+
+  ipcMain.handle('csvMapping:delete', async (_event, id: number) => {
+    try {
+      deleteCsvMapping(id)
+      return { success: true }
+    } catch (error) {
+      log.error('Delete CSV mapping error:', error)
+      return { success: false, error: 'Failed to delete CSV mapping' }
     }
   })
 }

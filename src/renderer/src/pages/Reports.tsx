@@ -19,6 +19,22 @@ export default function Reports() {
   const [selectedTransactions, setSelectedTransactions] = useState<Set<string>>(new Set())
   const [showActionsDropdown, setShowActionsDropdown] = useState(false)
   const [ledgerRecords, setLedgerRecords] = useState<{ [key: string]: string }>({})
+  const [csvMappingsDeposits, setCsvMappingsDeposits] = useState<{ [key: string]: string }>({})
+  const [csvMappingsChecks, setCsvMappingsChecks] = useState<{ [key: string]: string }>({})
+  const [csvMappingsCreditCard, setCsvMappingsCreditCard] = useState<{ [key: string]: string }>({})
+  const [mercuryAccounts, setMercuryAccounts] = useState<any[]>([])
+  const [mercuryAccountMappings, setMercuryAccountMappings] = useState<{ [accountId: number]: number }>({})
+  const [ledgerPresets, setLedgerPresets] = useState<any[]>([])
+  const [isCompanyLocked, setIsCompanyLocked] = useState(false)
+
+  const handleOpenReportsWindow = async () => {
+    if (!selectedCompany) return
+    try {
+      await window.api.windowOpenCompanyReports(selectedCompany.id, selectedCompany.name)
+    } catch (error) {
+      console.error('Failed to open reports window:', error)
+    }
+  }
 
   // Set default dates: last 7 days
   const getDefaultEndDate = () => {
@@ -38,18 +54,68 @@ export default function Reports() {
     return thirtyDaysAgo.toISOString().split('T')[0]
   }
 
-  const [startDate, setStartDate] = useState(getDefaultStartDate())
-  const [endDate, setEndDate] = useState(getDefaultEndDate())
-  const [statusFilter, setStatusFilter] = useState('')
+  // Load filters from localStorage or use defaults
+  const getInitialStartDate = () => {
+    const saved = localStorage.getItem('reports_startDate')
+    return saved || getDefaultStartDate()
+  }
+
+  const getInitialEndDate = () => {
+    const saved = localStorage.getItem('reports_endDate')
+    return saved || getDefaultEndDate()
+  }
+
+  const getInitialStatusFilter = () => {
+    const saved = localStorage.getItem('reports_statusFilter')
+    return saved || ''
+  }
+
+  const [startDate, setStartDate] = useState(getInitialStartDate())
+  const [endDate, setEndDate] = useState(getInitialEndDate())
+  const [statusFilter, setStatusFilter] = useState(getInitialStatusFilter())
+
+  // Save filters to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('reports_startDate', startDate)
+  }, [startDate])
+
+  useEffect(() => {
+    localStorage.setItem('reports_endDate', endDate)
+  }, [endDate])
+
+  useEffect(() => {
+    localStorage.setItem('reports_statusFilter', statusFilter)
+  }, [statusFilter])
 
   useEffect(() => {
     loadCompanies()
+    loadLedgerPresets()
   }, [user])
+
+  // Check for company ID in URL hash (for new window functionality)
+  useEffect(() => {
+    if (companies.length === 0) return
+
+    const hash = window.location.hash
+    const params = new URLSearchParams(hash.substring(hash.indexOf('?')))
+    const companyIdParam = params.get('companyId')
+
+    if (companyIdParam) {
+      const companyId = parseInt(companyIdParam, 10)
+      const company = companies.find(c => c.id === companyId)
+      if (company) {
+        setSelectedCompany(company)
+        setIsCompanyLocked(true) // Lock to this company in dedicated window
+      }
+    }
+  }, [companies])
 
   useEffect(() => {
     if (selectedCompany) {
       fetchTransactions()
       loadLedgerRecords(selectedCompany.id)
+      loadAllCsvMappings(selectedCompany.id)
+      loadMercuryAccounts(selectedCompany.id)
     }
   }, [selectedCompany, startDate, endDate, statusFilter])
 
@@ -117,6 +183,74 @@ export default function Reports() {
       }
     } catch (error) {
       console.error('Failed to load ledger records:', error)
+    }
+  }
+
+  const loadAllCsvMappings = async (companyId: number) => {
+    try {
+      // Load deposits mappings
+      const depositsResult = await window.api.csvMappingGetByCompanyAndType(companyId, 'quickbooks_deposits')
+      if (depositsResult.success && depositsResult.mappings) {
+        const mappingsMap: { [key: string]: string } = {}
+        depositsResult.mappings.forEach((mapping) => {
+          mappingsMap[mapping.field_name] = mapping.template
+        })
+        setCsvMappingsDeposits(mappingsMap)
+      }
+
+      // Load checks mappings
+      const checksResult = await window.api.csvMappingGetByCompanyAndType(companyId, 'quickbooks_checks')
+      if (checksResult.success && checksResult.mappings) {
+        const mappingsMap: { [key: string]: string } = {}
+        checksResult.mappings.forEach((mapping) => {
+          mappingsMap[mapping.field_name] = mapping.template
+        })
+        setCsvMappingsChecks(mappingsMap)
+      }
+
+      // Load credit card mappings
+      const creditCardResult = await window.api.csvMappingGetByCompanyAndType(companyId, 'quickbooks_credit_card')
+      if (creditCardResult.success && creditCardResult.mappings) {
+        const mappingsMap: { [key: string]: string } = {}
+        creditCardResult.mappings.forEach((mapping) => {
+          mappingsMap[mapping.field_name] = mapping.template
+        })
+        setCsvMappingsCreditCard(mappingsMap)
+      }
+    } catch (error) {
+      console.error('Failed to load CSV mappings:', error)
+    }
+  }
+
+  const loadMercuryAccounts = async (companyId: number) => {
+    try {
+      const result = await window.api.mercuryAccountGetByCompanyId(companyId)
+      if (result.success && result.accounts) {
+        setMercuryAccounts(result.accounts)
+
+        // Load ledger mappings for each account
+        const mappings: { [accountId: number]: number } = {}
+        for (const account of result.accounts) {
+          const mappingResult = await window.api.mercuryAccountGetLedgerMappings(account.id)
+          if (mappingResult.success && mappingResult.mappings && mappingResult.mappings.length > 0) {
+            mappings[account.id] = mappingResult.mappings[0].ledger_preset_id
+          }
+        }
+        setMercuryAccountMappings(mappings)
+      }
+    } catch (error) {
+      console.error('Failed to load Mercury accounts:', error)
+    }
+  }
+
+  const loadLedgerPresets = async () => {
+    try {
+      const result = await window.api.ledgerPresetGetAll()
+      if (result.success && result.presets) {
+        setLedgerPresets(result.presets)
+      }
+    } catch (error) {
+      console.error('Failed to load ledger presets:', error)
     }
   }
 
@@ -209,21 +343,69 @@ export default function Reports() {
   const handleDownloadQuickBooksDeposits = () => {
     const glNameChecking = ledgerRecords['gl_name_mercury_checking'] || selectedCompany?.name || ''
     const glNameCreditCard = ledgerRecords['gl_name_mercury_credit_card'] || selectedCompany?.name || ''
-    downloadQuickBooksDeposits(transactions, selectedTransactions, glNameCreditCard, glNameChecking)
+
+    // Build ledger context for lookups
+    const ledgerContext = {
+      ledgerRecords,
+      mercuryAccountMappings,
+      ledgerPresets,
+      mercuryAccounts
+    }
+
+    downloadQuickBooksDeposits(
+      transactions,
+      selectedTransactions,
+      glNameCreditCard,
+      glNameChecking,
+      csvMappingsDeposits,
+      ledgerContext
+    )
     setShowActionsDropdown(false)
   }
 
   const handleDownloadQuickBooksChecks = () => {
     const glNameChecking = ledgerRecords['gl_name_mercury_checking'] || selectedCompany?.name || ''
     const glNameCreditCard = ledgerRecords['gl_name_mercury_credit_card'] || selectedCompany?.name || ''
-    downloadQuickBooksChecks(transactions, selectedTransactions, glNameCreditCard, glNameChecking)
+
+    // Build ledger context for lookups
+    const ledgerContext = {
+      ledgerRecords,
+      mercuryAccountMappings,
+      ledgerPresets,
+      mercuryAccounts
+    }
+
+    downloadQuickBooksChecks(
+      transactions,
+      selectedTransactions,
+      glNameCreditCard,
+      glNameChecking,
+      csvMappingsChecks,
+      ledgerContext
+    )
     setShowActionsDropdown(false)
   }
 
   const handleDownloadQuickBooksCreditCard = () => {
     const glNameChecking = ledgerRecords['gl_name_mercury_checking'] || selectedCompany?.name || ''
     const glNameCreditCard = ledgerRecords['gl_name_mercury_credit_card'] || selectedCompany?.name || ''
-    downloadQuickBooksCreditCard(transactions, selectedTransactions, glNameCreditCard, glNameChecking)
+
+    // Build ledger context for lookups
+    const ledgerContext = {
+      ledgerRecords,
+      mercuryAccountMappings,
+      ledgerPresets,
+      mercuryAccounts
+    }
+
+    downloadQuickBooksCreditCard(
+      transactions,
+      selectedTransactions,
+      glNameCreditCard,
+      glNameChecking,
+      csvMappingsCreditCard,
+      ledgerContext
+    )
     setShowActionsDropdown(false)
   }
 
@@ -280,32 +462,57 @@ export default function Reports() {
 
   return (
     <div className="page full-width">
-      <h2 className="page-title">Mercury Transactions</h2>
+      <h2 className="page-title">
+        {isCompanyLocked && selectedCompany ? `${selectedCompany.name} - Reports` : 'Mercury Transactions'}
+      </h2>
       <div className="page-content">
-        <div className="company-cards-container">
-          <div className="company-cards-scroll">
-            {companies.map((company) => (
-              <div
-                key={company.id}
-                className={`company-card ${selectedCompany?.id === company.id ? 'selected' : ''}`}
-                onClick={() => {
-                  setSelectedCompany(company)
-                  setTransactions([])
-                }}
-              >
-                <div className="company-card-name">{company.name}</div>
-                <div className="company-card-meta">
-                  {company.last_used_at
-                    ? `Last used: ${new Date(company.last_used_at).toLocaleDateString()}`
-                    : 'Never used'}
+        {!isCompanyLocked && (
+          <div className="company-cards-container">
+            <div className="company-cards-scroll">
+              {companies.map((company) => (
+                <div
+                  key={company.id}
+                  className={`company-card ${selectedCompany?.id === company.id ? 'selected' : ''}`}
+                  onClick={() => {
+                    setSelectedCompany(company)
+                    setTransactions([])
+                  }}
+                >
+                  <div className="company-card-name">{company.name}</div>
+                  <div className="company-card-meta">
+                    {company.last_used_at
+                      ? `Last used: ${new Date(company.last_used_at).toLocaleDateString()}`
+                      : 'Never used'}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="transactions-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {!isCompanyLocked && selectedCompany && (
+              <button
+                onClick={handleOpenReportsWindow}
+                style={{
+                  padding: '6px 12px',
+                  backgroundColor: '#4299e1',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  transition: 'background-color 0.2s',
+                  marginRight: '4px'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#3182ce'}
+                onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#4299e1'}
+              >
+                Open in New Window
+              </button>
+            )}
             <p style={{ margin: 0 }}>Total Transactions: {transactions.length}</p>
             {selectedTransactions.size > 0 && (
               <p style={{ margin: 0, color: '#667eea', fontWeight: 600 }}>
@@ -409,17 +616,15 @@ export default function Reports() {
                 onClick={() => {
                   setStartDate(getDefaultStartDate())
                   setEndDate(getDefaultEndDate())
-                  setStatusFilter('')
                 }}
                 className="clear-filters-button"
               >
-                Reset to Last 7 Days
+                Last 7 Days
               </button>
               <button
                 onClick={() => {
                   setStartDate(getThirtyDaysAgoDate())
                   setEndDate(getDefaultEndDate())
-                  setStatusFilter('')
                 }}
                 className="clear-filters-button"
               >

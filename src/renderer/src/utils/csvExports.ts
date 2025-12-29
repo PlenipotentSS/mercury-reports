@@ -1,4 +1,5 @@
 import type { Transaction } from '../types'
+import { processTemplate, type LedgerLookupContext } from './templateProcessor'
 
 const QUICKBOOKS_EXPORTABLE_STATUSES = ['sent', 'pending']
 
@@ -74,6 +75,7 @@ export const downloadMercuryCSV = (
 const isWithdrawalTransaction = (txn: Transaction): boolean => {
   if (!QUICKBOOKS_EXPORTABLE_STATUSES.includes(txn.status)) return false
   if (txn.kind === "outgoingPayment") return true
+  if (txn.kind === "internalTransfer") return false // only deposits for internal transfers
   if (txn.kind === 'creditCardTransaction') return false
   if (txn.kind === "other" && txn.bankDescription?.includes('IO AUTOPAY') && txn.amount > 0) return false
   return txn.amount < 0
@@ -81,6 +83,7 @@ const isWithdrawalTransaction = (txn: Transaction): boolean => {
 
 const isDepositTransaction = (txn: Transaction): boolean => {
   if (!QUICKBOOKS_EXPORTABLE_STATUSES.includes(txn.status)) return false
+  if (txn.kind === "internalTransfer") return true // only deposits for internal transfers
   if (txn.kind === "other" && txn.bankDescription?.includes('IO AUTOPAY') && txn.amount > 0) return false
   if (txn.kind === "outgoingPayment") return false
   if (txn.kind === 'creditCardTransaction') return false
@@ -102,7 +105,9 @@ export const downloadQuickBooksDeposits = (
   transactions: Transaction[],
   selectedTransactionIds: Set<string>,
   _: string,
-  glNameMercuryChecking: string
+  glNameMercuryChecking: string,
+  csvMappings?: { [key: string]: string },
+  ledgerContext?: LedgerLookupContext
 ): void => {
   const selectedTxns = transactions.filter(
     (t) => selectedTransactionIds.has(t.id) && isDepositTransaction(t)
@@ -126,21 +131,50 @@ export const downloadQuickBooksDeposits = (
     'Cash back Memo'
   ]
 
-  const rows = selectedTxns.map((txn) => [
-    glNameMercuryChecking, // Deposit To
-    new Date(txn.createdAt).toLocaleDateString('en-US'), // Date
-    `${txn.bankDescription || ''} - ${txn.categoryData?.name || ''}` || '', // Memo
-    txn.counterpartyName || '', // Received From
-    modifyGlCodeComma(txn.generalLedgerCodeName) || '', // From Account
-    txn.bankDescription || '', // Line Memo
-    '', // Check No.
-    'Cash', // Payment Method
-    '', // Class
-    Math.abs(txn.amount).toString(), // Amount
-    '', // Less Cash Back
-    '', // Cash back Accnt.
-    '' // Cash back Memo
-  ])
+  // Default templates if no mappings provided
+  const defaultMappings = {
+    deposit_to: '{ledgerLookup(gl_name_mercury_checking)}',
+    date: '{txn.createdAt}',
+    memo: '{txn.bankDescription} - {txn.categoryData.name}',
+    received_from: '{txn.categoryData.name}',
+    from_account: '{txn.generalLedgerCodeName}',
+    line_memo: '{txn.bankDescription}',
+    check_no: '',
+    payment_method: 'Cash',
+    class: '',
+    amount: '{txn.amount}',
+    less_cash_back: '',
+    cash_back_account: '',
+    cash_back_memo: ''
+  }
+
+  const mappings = { ...defaultMappings, ...csvMappings }
+
+  const rows = selectedTxns.map((txn) => {
+    const additionalVars = {
+      glNameMercuryChecking
+    }
+
+    return [
+      processTemplate(mappings.deposit_to, txn, additionalVars, ledgerContext),
+      mappings.date === '{txn.createdAt}'
+        ? new Date(txn.createdAt).toLocaleDateString('en-US')
+        : processTemplate(mappings.date, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.memo, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.received_from, txn, additionalVars, ledgerContext),
+      modifyGlCodeComma(processTemplate(mappings.from_account, txn, additionalVars, ledgerContext)),
+      processTemplate(mappings.line_memo, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.check_no, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.payment_method, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.class, txn, additionalVars, ledgerContext),
+      mappings.amount === '{txn.amount}'
+        ? Math.abs(txn.amount).toString()
+        : processTemplate(mappings.amount, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.less_cash_back, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.cash_back_account, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.cash_back_memo, txn, additionalVars, ledgerContext)
+    ]
+  })
 
   const csvContent = buildCSV(headers, rows)
   downloadCSVFile(csvContent, 'quickbooks-deposits')
@@ -150,7 +184,9 @@ export const downloadQuickBooksChecks = (
   transactions: Transaction[],
   selectedTransactionIds: Set<string>,
   glNameMercuryCreditCard: string,
-  glNameMercuryChecking: string
+  glNameMercuryChecking: string,
+  csvMappings?: { [key: string]: string },
+  ledgerContext?: LedgerLookupContext
 ): void => {
   const selectedTxns = transactions.filter(
     (t) => selectedTransactionIds.has(t.id) && isWithdrawalTransaction(t)
@@ -161,52 +197,64 @@ export const downloadQuickBooksChecks = (
   const headers = [
     'Bank Account',
     'Payee',
-    'Number',
+    'Check Number',
     'Date',
-    'Total Amount',
+    'Amount',
     'Memo',
-    'Expense Account',
+    'Account',
     'Expense Amount',
     'Expense Memo',
     'Expense Customer:Job',
-    'Expense Billable',
-    'Expense Class',
-    'Item',
-    'Item Description',
-    'Item Qty.',
-    'Item Cost',
-    'Item Amount',
-    'Item Customer:Job',
-    'Item Billable',
-    'Item Class'
+    'Expense Billable'
   ]
 
+  // Default templates if no mappings provided
+  const defaultMappings = {
+    bank_account: '{ledgerLookup(gl_name_mercury_checking)}',
+    date: '{txn.createdAt}',
+    check_number: 'EFT',
+    payee: '{txn.counterpartyName}',
+    memo: '{txn.bankDescription}',
+    account: '{txn.generalLedgerCodeName}',
+    amount: '{txn.amount}',
+    class: '',
+    expense_amount: '{txn.amount}',
+    expense_memo: '',
+    expense_customer_job: '{txn.categoryData.name}'
+  }
+
+  const mappings = { ...defaultMappings, ...csvMappings }
+
   const rows = selectedTxns.map((txn) => {
-    let expenseAccount = modifyGlCodeComma(txn.generalLedgerCodeName) || '';
-    if (txn.kind === "other" && txn.bankDescription?.includes('IO AUTOPAY')) {
-      expenseAccount = glNameMercuryCreditCard || '';
+    const additionalVars = {
+      glNameMercuryChecking,
+      glNameMercuryCreditCard
     }
+
+    // Handle special case for IO AUTOPAY
+    let accountValue = processTemplate(mappings.account, txn, additionalVars, ledgerContext)
+    if (txn.kind === "other" && txn.bankDescription?.includes('IO AUTOPAY')) {
+      accountValue = glNameMercuryCreditCard
+    }
+
     return [
-      glNameMercuryChecking, // Bank Account
-      txn.counterpartyName || '', // Payee
-      txn.id.slice(0, 8), // Number (truncated ID)
-      new Date(txn.createdAt).toLocaleDateString('en-US'), // Date
-      Math.abs(txn.amount).toString(), // Total Amount
-      `${txn.bankDescription || ''} - ${txn.mercuryCategory || ''}` || '', // Memo
-      expenseAccount, // Expense Account
-      Math.abs(txn.amount).toString(), // Expense Amount
-      txn.bankDescription || '', // Expense Memo
-      `${txn.categoryData?.name}`, // Expense Customer:Job
-      '', // Expense Billable
-      '', // Expense Class
-      '', // Item
-      '', // Item Description
-      '', // Item Qty.
-      '', // Item Cost
-      '', // Item Amount
-      '', // Item Customer:Job
-      '', // Item Billable
-      '' // Item Class
+      processTemplate(mappings.bank_account, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.payee, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.check_number, txn, additionalVars, ledgerContext),
+      mappings.date === '{txn.createdAt}'
+        ? new Date(txn.createdAt).toLocaleDateString('en-US')
+        : processTemplate(mappings.date, txn, additionalVars, ledgerContext),
+      mappings.amount === '{txn.amount}'
+        ? Math.abs(txn.amount).toString()
+        : processTemplate(mappings.amount, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.memo, txn, additionalVars, ledgerContext),
+      modifyGlCodeComma(accountValue),
+      mappings.expense_amount === '{txn.amount}'
+        ? Math.abs(txn.amount).toString()
+        : processTemplate(mappings.expense_amount, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.expense_memo, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.expense_customer_job, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.class, txn, additionalVars, ledgerContext),
     ]
   })
 
@@ -218,7 +266,9 @@ export const downloadQuickBooksCreditCard = (
   transactions: Transaction[],
   selectedTransactionIds: Set<string>,
   glNameMercuryCreditCard: string,
-  _: string
+  _: string,
+  csvMappings?: { [key: string]: string },
+  ledgerContext?: LedgerLookupContext
 ): void => {
   const selectedTxns = transactions.filter(
     (t) => selectedTransactionIds.has(t.id) && isCreditCardTransaction(t)
@@ -227,46 +277,61 @@ export const downloadQuickBooksCreditCard = (
   if (selectedTxns.length === 0) return
 
   const headers = [
-    'Credit Card Account',
-    'Purchased From',
+    'Credit Card',
+    'Purchased From (Payee)',
     'Ref Number',
     'Date',
     'Expense Account',
     'Expense Amount',
-    'Expense Customer:Job',
+    'Customer:Job',
     'Expense Billable',
-    'Expense Class',
+    'Class',
     'Item',
     'Item Description',
-    'Item Qty.',
-    'Item Cost',
-    'Item Amount',
-    'Item Customer:Job',
-    'Item Billable',
-    'Item Class'
+    'Item Quantity',
   ]
+
+  // Default templates if no mappings provided
+  const defaultMappings = {
+    credit_card: '{ledgerLookup(gl_name_mercury_credit_card)}',
+    payee: '{txn.counterpartyName}',
+    ref_number: '{txn.id}',
+    date: '{txn.createdAt}',
+    account: '{txn.generalLedgerCodeName}',
+    customer_job: '{txn.categoryData.name}',
+    amount: '{txn.amount}',
+    expense_billable: '',
+    class: '',
+    item: '',
+    item_description: '',
+    item_quantity: '1'
+  }
+
+  const mappings = { ...defaultMappings, ...csvMappings }
+
   const rows = selectedTxns.map((txn) => {
-    let expenseAccount = modifyGlCodeComma(txn.generalLedgerCodeName) || '';
+    const additionalVars = {
+      glNameMercuryCreditCard
+    }
 
     return [
-      glNameMercuryCreditCard, // Credit Card Account
-      txn.counterpartyName || '', // Purchased From
-      txn.id.slice(0, 8), // Ref Number (truncated ID)
-      new Date(txn.createdAt).toLocaleDateString('en-US'), // Date
-      expenseAccount, // Expense Account
-      Math.abs(txn.amount).toString(), // Expense Amount
-      `${txn.categoryData?.name}`, // Expense Customer:Job
-      '', // Expense Billable
-      '', // Expense Class
-      '', // Item
-      `${txn.mercuryCategory}`, // Item Description
-      '', // Item Qty.
-      '', // Item Cost
-      '', // Item Amount
-      '', // Item Customer:Job
-      '', // Item Billable
-      '' // Item Class
-    ];
+      processTemplate(mappings.credit_card, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.payee, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.ref_number, txn, additionalVars, ledgerContext),
+      mappings.date === '{txn.createdAt}'
+        ? new Date(txn.createdAt).toLocaleDateString('en-US')
+        : processTemplate(mappings.date, txn, additionalVars, ledgerContext),
+      modifyGlCodeComma(processTemplate(mappings.account, txn, additionalVars, ledgerContext)),
+      mappings.amount === '{txn.amount}'
+        ? Math.abs(txn.amount).toString()
+        : processTemplate(mappings.amount, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.customer_job, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.expense_billable, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.class, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.item, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.item_description, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.item_quantity, txn, additionalVars, ledgerContext)
+    ]
   })
 
   const csvContent = buildCSV(headers, rows)

@@ -34,7 +34,18 @@ const api = {
   ledgerPresetGetByKey: (key) => electron.ipcRenderer.invoke("ledgerPreset:getByKey", key),
   ledgerPresetGetAll: () => electron.ipcRenderer.invoke("ledgerPreset:getAll"),
   ledgerPresetUpdate: (id, key, label, description) => electron.ipcRenderer.invoke("ledgerPreset:update", id, key, label, description),
-  ledgerPresetDelete: (id) => electron.ipcRenderer.invoke("ledgerPreset:delete", id)
+  ledgerPresetDelete: (id) => electron.ipcRenderer.invoke("ledgerPreset:delete", id),
+  // Mercury Accounts
+  mercuryAccountSyncFromApi: (companyId, apiKey) => electron.ipcRenderer.invoke("mercuryAccount:syncFromApi", companyId, apiKey),
+  mercuryAccountGetByCompanyId: (companyId) => electron.ipcRenderer.invoke("mercuryAccount:getByCompanyId", companyId),
+  mercuryAccountSetLedgerMapping: (mercuryAccountId, ledgerPresetId) => electron.ipcRenderer.invoke("mercuryAccount:setLedgerMapping", mercuryAccountId, ledgerPresetId),
+  mercuryAccountGetLedgerMappings: (mercuryAccountId) => electron.ipcRenderer.invoke("mercuryAccount:getLedgerMappings", mercuryAccountId),
+  // CSV Mappings
+  csvMappingGetByCompanyAndType: (companyId, exportType) => electron.ipcRenderer.invoke("csvMapping:getByCompanyAndType", companyId, exportType),
+  csvMappingUpsert: (companyId, exportType, fieldName, template) => electron.ipcRenderer.invoke("csvMapping:upsert", companyId, exportType, fieldName, template),
+  csvMappingDelete: (id) => electron.ipcRenderer.invoke("csvMapping:delete", id),
+  // Window management
+  windowOpenCompanyReports: (companyId, companyName) => electron.ipcRenderer.invoke("window:openCompanyReports", companyId, companyName)
 };
 if (process.contextIsolated) {
   try {

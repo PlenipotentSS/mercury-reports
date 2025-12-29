@@ -6,6 +6,9 @@ import { createApiKeysTable } from './migrations/003_create_api_keys_table'
 import { createCompaniesTable } from './migrations/004_create_companies_table'
 import * as createCompanyLedgerRecordsTable from './migrations/005_create_company_ledger_records_table'
 import * as createLedgerPresetsTable from './migrations/006_create_ledger_presets_table'
+import * as createMercuryAccountsTable from './migrations/007_create_mercury_accounts_table'
+import * as createAccountLedgerMappingsTable from './migrations/008_create_account_ledger_mappings_table'
+import * as createCsvMappingsTable from './migrations/009_create_csv_mappings_table'
 import log from 'electron-log'
 
 export interface Migration {
@@ -33,6 +36,24 @@ export const migrations: Migration[] = [
     name: 'create_ledger_presets_table',
     up: createLedgerPresetsTable.up,
     down: createLedgerPresetsTable.down
+  },
+  {
+    id: 7,
+    name: 'create_mercury_accounts_table',
+    up: createMercuryAccountsTable.up,
+    down: createMercuryAccountsTable.down
+  },
+  {
+    id: 8,
+    name: 'create_account_ledger_mappings_table',
+    up: createAccountLedgerMappingsTable.up,
+    down: createAccountLedgerMappingsTable.down
+  },
+  {
+    id: 9,
+    name: 'create_csv_mappings_table',
+    up: createCsvMappingsTable.up,
+    down: createCsvMappingsTable.down
   }
 ]
 
