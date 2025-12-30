@@ -289,6 +289,9 @@ export const downloadQuickBooksCreditCard = (
     'Item',
     'Item Description',
     'Item Quantity',
+    'Item Cost',
+    'Item Amount',
+    'Item Customer:Job'
   ]
 
   // Default templates if no mappings provided
@@ -304,7 +307,10 @@ export const downloadQuickBooksCreditCard = (
     class: '',
     item: '',
     item_description: '',
-    item_quantity: '1'
+    item_quantity: '1',
+    item_cost: '{txn.amount}',
+    item_amount: '{txn.amount}',
+    item_customer_job: '{txn.categoryData.name}'
   }
 
   const mappings = { ...defaultMappings, ...csvMappings }
@@ -330,7 +336,14 @@ export const downloadQuickBooksCreditCard = (
       processTemplate(mappings.class, txn, additionalVars, ledgerContext),
       processTemplate(mappings.item, txn, additionalVars, ledgerContext),
       processTemplate(mappings.item_description, txn, additionalVars, ledgerContext),
-      processTemplate(mappings.item_quantity, txn, additionalVars, ledgerContext)
+      processTemplate(mappings.item_quantity, txn, additionalVars, ledgerContext),
+      mappings.item_cost === '{txn.amount}'
+        ? Math.abs(txn.amount).toString()
+        : processTemplate(mappings.item_cost, txn, additionalVars, ledgerContext),      
+      mappings.item_amount === '{txn.amount}'
+        ? Math.abs(txn.amount).toString()
+        : processTemplate(mappings.item_amount, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.item_customer_job, txn, additionalVars, ledgerContext)
     ]
   })
 

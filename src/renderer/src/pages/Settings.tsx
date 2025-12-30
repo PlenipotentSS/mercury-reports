@@ -529,7 +529,11 @@ export default function Settings() {
           { field: 'Expense Billable', key: 'expense_billable', default: '', description: 'Billable status (optional)' },
           { field: 'Class', key: 'class', default: '', description: 'QuickBooks class (optional)' },
           { field: 'Item', key: 'item', default: '', description: 'Item/Product (optional)' },
-          { field: 'Item Description', key: 'item_description', default: '', description: 'Item description (optional)' }
+          { field: 'Item Description', key: 'item_description', default: '', description: 'Item description (optional)' },
+          { field: 'Item Quantity', key: 'item_quantity', default: '1', description: 'Item quantity' },
+          { field: 'Item Cost', key: 'item_cost', default: '', description: 'Item cost (optional)' },
+          { field: 'Item Amount', key: 'item_amount', default: '', description: 'Item amount (optional)' },
+          { field: 'Item Customer:Job', key: 'item_customer_job', default: '', description: 'Item customer/job (optional)' }
         ]
       default:
         return []

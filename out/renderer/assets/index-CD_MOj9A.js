@@ -13140,12 +13140,14 @@ const downloadMercuryCSV = (transactions, selectedTransactionIds) => {
 const isWithdrawalTransaction = (txn) => {
   if (!QUICKBOOKS_EXPORTABLE_STATUSES.includes(txn.status)) return false;
   if (txn.kind === "outgoingPayment") return true;
+  if (txn.kind === "internalTransfer") return false;
   if (txn.kind === "creditCardTransaction") return false;
   if (txn.kind === "other" && txn.bankDescription?.includes("IO AUTOPAY") && txn.amount > 0) return false;
   return txn.amount < 0;
 };
 const isDepositTransaction = (txn) => {
   if (!QUICKBOOKS_EXPORTABLE_STATUSES.includes(txn.status)) return false;
+  if (txn.kind === "internalTransfer") return true;
   if (txn.kind === "other" && txn.bankDescription?.includes("IO AUTOPAY") && txn.amount > 0) return false;
   if (txn.kind === "outgoingPayment") return false;
   if (txn.kind === "creditCardTransaction") return false;
@@ -13185,7 +13187,7 @@ const downloadQuickBooksDeposits = (transactions, selectedTransactionIds, _, glN
     deposit_to: "{ledgerLookup(gl_name_mercury_checking)}",
     date: "{txn.createdAt}",
     memo: "{txn.bankDescription} - {txn.categoryData.name}",
-    received_from: "{txn.counterpartyName}",
+    received_from: "{txn.categoryData.name}",
     from_account: "{txn.generalLedgerCodeName}",
     line_memo: "{txn.bankDescription}",
     check_no: "",
@@ -13228,23 +13230,29 @@ const downloadQuickBooksChecks = (transactions, selectedTransactionIds, glNameMe
   if (selectedTxns.length === 0) return;
   const headers = [
     "Bank Account",
-    "Date",
-    "Check Number",
     "Payee",
+    "Check Number",
+    "Date",
+    "Amount",
     "Memo",
     "Account",
-    "Amount",
-    "Class"
+    "Expense Amount",
+    "Expense Memo",
+    "Expense Customer:Job",
+    "Expense Billable"
   ];
   const defaultMappings = {
     bank_account: "{ledgerLookup(gl_name_mercury_checking)}",
     date: "{txn.createdAt}",
-    check_number: "",
+    check_number: "EFT",
     payee: "{txn.counterpartyName}",
     memo: "{txn.bankDescription}",
     account: "{txn.generalLedgerCodeName}",
     amount: "{txn.amount}",
-    class: ""
+    class: "",
+    expense_amount: "{txn.amount}",
+    expense_memo: "",
+    expense_customer_job: "{txn.categoryData.name}"
   };
   const mappings = { ...defaultMappings, ...csvMappings };
   const rows = selectedTxns.map((txn) => {
@@ -13258,12 +13266,15 @@ const downloadQuickBooksChecks = (transactions, selectedTransactionIds, glNameMe
     }
     return [
       processTemplate(mappings.bank_account, txn, additionalVars, ledgerContext),
-      mappings.date === "{txn.createdAt}" ? new Date(txn.createdAt).toLocaleDateString("en-US") : processTemplate(mappings.date, txn, additionalVars, ledgerContext),
-      processTemplate(mappings.check_number, txn, additionalVars, ledgerContext),
       processTemplate(mappings.payee, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.check_number, txn, additionalVars, ledgerContext),
+      mappings.date === "{txn.createdAt}" ? new Date(txn.createdAt).toLocaleDateString("en-US") : processTemplate(mappings.date, txn, additionalVars, ledgerContext),
+      mappings.amount === "{txn.amount}" ? Math.abs(txn.amount).toString() : processTemplate(mappings.amount, txn, additionalVars, ledgerContext),
       processTemplate(mappings.memo, txn, additionalVars, ledgerContext),
       modifyGlCodeComma(accountValue),
-      mappings.amount === "{txn.amount}" ? Math.abs(txn.amount).toString() : processTemplate(mappings.amount, txn, additionalVars, ledgerContext),
+      mappings.expense_amount === "{txn.amount}" ? Math.abs(txn.amount).toString() : processTemplate(mappings.expense_amount, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.expense_memo, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.expense_customer_job, txn, additionalVars, ledgerContext),
       processTemplate(mappings.class, txn, additionalVars, ledgerContext)
     ];
   });
@@ -13278,21 +13289,31 @@ const downloadQuickBooksCreditCard = (transactions, selectedTransactionIds, glNa
   if (selectedTxns.length === 0) return;
   const headers = [
     "Credit Card",
+    "Purchased From (Payee)",
+    "Ref Number",
     "Date",
-    "Payee",
-    "Memo",
-    "Account",
-    "Amount",
-    "Class"
+    "Expense Account",
+    "Expense Amount",
+    "Customer:Job",
+    "Expense Billable",
+    "Class",
+    "Item",
+    "Item Description",
+    "Item Quantity"
   ];
   const defaultMappings = {
     credit_card: "{ledgerLookup(gl_name_mercury_credit_card)}",
-    date: "{txn.createdAt}",
     payee: "{txn.counterpartyName}",
-    memo: "{txn.bankDescription}",
+    ref_number: "{txn.id}",
+    date: "{txn.createdAt}",
     account: "{txn.generalLedgerCodeName}",
+    customer_job: "{txn.categoryData.name}",
     amount: "{txn.amount}",
-    class: ""
+    expense_billable: "",
+    class: "",
+    item: "",
+    item_description: "",
+    item_quantity: "1"
   };
   const mappings = { ...defaultMappings, ...csvMappings };
   const rows = selectedTxns.map((txn) => {
@@ -13301,12 +13322,17 @@ const downloadQuickBooksCreditCard = (transactions, selectedTransactionIds, glNa
     };
     return [
       processTemplate(mappings.credit_card, txn, additionalVars, ledgerContext),
-      mappings.date === "{txn.createdAt}" ? new Date(txn.createdAt).toLocaleDateString("en-US") : processTemplate(mappings.date, txn, additionalVars, ledgerContext),
       processTemplate(mappings.payee, txn, additionalVars, ledgerContext),
-      processTemplate(mappings.memo, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.ref_number, txn, additionalVars, ledgerContext),
+      mappings.date === "{txn.createdAt}" ? new Date(txn.createdAt).toLocaleDateString("en-US") : processTemplate(mappings.date, txn, additionalVars, ledgerContext),
       modifyGlCodeComma(processTemplate(mappings.account, txn, additionalVars, ledgerContext)),
       mappings.amount === "{txn.amount}" ? Math.abs(txn.amount).toString() : processTemplate(mappings.amount, txn, additionalVars, ledgerContext),
-      processTemplate(mappings.class, txn, additionalVars, ledgerContext)
+      processTemplate(mappings.customer_job, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.expense_billable, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.class, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.item, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.item_description, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.item_quantity, txn, additionalVars, ledgerContext)
     ];
   });
   const csvContent = buildCSV(headers, rows);
@@ -14357,17 +14383,24 @@ function Settings() {
           { field: "Memo", key: "memo", default: "{txn.bankDescription}", description: "Transaction memo" },
           { field: "Account", key: "account", default: "{txn.generalLedgerCodeName}", description: "Expense account/GL code" },
           { field: "Amount", key: "amount", default: "{txn.amount}", description: "Transaction amount" },
-          { field: "Class", key: "class", default: "", description: "QuickBooks class (optional)" }
+          { field: "Class", key: "class", default: "", description: "QuickBooks class (optional)" },
+          { field: "Expense Amount", key: "expense_amount", default: "", description: "Additional expense amount (optional)" },
+          { field: "Expense Memo", key: "expense_memo", default: "", description: "Expense line memo (optional)" },
+          { field: "Expense Customer:Job", key: "expense_customer_job", default: "", description: "Customer/Job for expense (optional)" }
         ];
       case "quickbooks_credit_card":
         return [
           { field: "Credit Card", key: "credit_card", default: "{ledgerLookup(gl_name_mercury_credit_card)}", description: "Credit card account" },
           { field: "Date", key: "date", default: "{txn.createdAt}", description: "Transaction date" },
           { field: "Payee", key: "payee", default: "{txn.counterpartyName}", description: "Merchant/payee name" },
-          { field: "Memo", key: "memo", default: "{txn.bankDescription}", description: "Transaction memo" },
+          { field: "Ref Number", key: "ref_number", default: "{txn.id}", description: "Reference number" },
           { field: "Account", key: "account", default: "{txn.generalLedgerCodeName}", description: "Expense account/GL code" },
           { field: "Amount", key: "amount", default: "{txn.amount}", description: "Transaction amount" },
-          { field: "Class", key: "class", default: "", description: "QuickBooks class (optional)" }
+          { field: "Customer:Job", key: "customer_job", default: "{txn.categoryData.name}", description: "Customer/Job for expense" },
+          { field: "Expense Billable", key: "expense_billable", default: "", description: "Billable status (optional)" },
+          { field: "Class", key: "class", default: "", description: "QuickBooks class (optional)" },
+          { field: "Item", key: "item", default: "", description: "Item/Product (optional)" },
+          { field: "Item Description", key: "item_description", default: "", description: "Item description (optional)" }
         ];
       default:
         return [];
