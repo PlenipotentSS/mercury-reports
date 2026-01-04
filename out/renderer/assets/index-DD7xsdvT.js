@@ -12670,22 +12670,28 @@ function Home() {
       }
       const accountsPromises = companiesResult.companies.map(async (company) => {
         try {
-          const accountsResult = await window.api.mercuryFetchAccounts(company.api_key);
+          const [accountsResult, creditAccountsResult] = await Promise.all([
+            window.api.mercuryFetchAccounts(company.api_key),
+            window.api.mercuryFetchCreditAccounts(company.api_key)
+          ]);
           if (!accountsResult.success) {
             return {
               company,
               accounts: [],
+              creditAccounts: [],
               error: accountsResult.error || "Failed to fetch accounts"
             };
           }
           return {
             company,
-            accounts: accountsResult.data.accounts || []
+            accounts: accountsResult.data.accounts || [],
+            creditAccounts: creditAccountsResult.success ? creditAccountsResult.data.accounts || [] : []
           };
         } catch (error) {
           return {
             company,
             accounts: [],
+            creditAccounts: [],
             error: error instanceof Error ? error.message : "Failed to fetch accounts"
           };
         }
@@ -12736,28 +12742,47 @@ function Home() {
       user?.name,
       "!"
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "page-content", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "accounts-overview", children: companyAccounts.map(({ company, accounts, error }) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "company-accounts-section", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "page-content", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "accounts-overview", children: companyAccounts.map(({ company, accounts, creditAccounts, error }) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "company-accounts-section", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "company-section-title", children: company.name }),
       error ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "error-message", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
         "Failed to load accounts: ",
         error
-      ] }) }) : accounts.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "no-accounts-message", children: "No accounts found for this company." }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "accounts-grid", children: accounts.filter((account) => account.status !== "archived").map((account) => /* @__PURE__ */ jsxRuntimeExports.jsxs("a", { className: "account-card", href: account.dashboardLink, target: "_blank", rel: "noreferrer", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "account-card-header", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { className: "account-nickname", children: account.nickname || account.name }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `account-status status-${account.status.toLowerCase()}`, children: account.status })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "account-card-body", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "account-balance-row", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "balance-label", children: "Available Balance:" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "balance-value available", children: formatCurrency(account.availableBalance) })
+      ] }) }) : accounts.length === 0 && creditAccounts.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "no-accounts-message", children: "No accounts found for this company." }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "accounts-grid", children: [
+        accounts.filter((account) => account.status !== "archived").map((account) => /* @__PURE__ */ jsxRuntimeExports.jsxs("a", { className: "account-card", href: account.dashboardLink, target: "_blank", rel: "noreferrer", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "account-card-header", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { className: "account-nickname", children: account.nickname || account.name }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `account-status status-${account.status.toLowerCase()}`, children: account.status })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "account-balance-row", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "balance-label", children: "Current Balance:" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "balance-value current", children: formatCurrency(account.currentBalance) })
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "account-card-body", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "account-balance-row", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "balance-label", children: "Available Balance:" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "balance-value available", children: formatCurrency(account.availableBalance) })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "account-balance-row", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "balance-label", children: "Current Balance:" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "balance-value current", children: formatCurrency(account.currentBalance) })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "account-meta", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "account-kind", children: account.kind }) })
+          ] })
+        ] }, account.id)),
+        creditAccounts.filter((account) => account.status !== "archived").map((account) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "account-card credit-account", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "account-card-header", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { className: "account-nickname", children: "Credit Card" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `account-status status-${account.status.toLowerCase()}`, children: account.status })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "account-meta", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "account-kind", children: account.kind }) })
-        ] })
-      ] }, account.id)) })
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "account-card-body", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "account-balance-row", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "balance-label", children: "Available Balance:" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "balance-value available credit-balance", children: formatCurrency(account.availableBalance) })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "account-balance-row", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "balance-label", children: "Current Balance:" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "balance-value current credit-balance", children: formatCurrency(account.currentBalance) })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "account-meta", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "account-kind", children: "credit" }) })
+          ] })
+        ] }, account.id))
+      ] })
     ] }, company.id)) }) })
   ] });
 }
@@ -13299,7 +13324,10 @@ const downloadQuickBooksCreditCard = (transactions, selectedTransactionIds, glNa
     "Class",
     "Item",
     "Item Description",
-    "Item Quantity"
+    "Item Quantity",
+    "Item Cost",
+    "Item Amount",
+    "Item Customer:Job"
   ];
   const defaultMappings = {
     credit_card: "{ledgerLookup(gl_name_mercury_credit_card)}",
@@ -13313,7 +13341,10 @@ const downloadQuickBooksCreditCard = (transactions, selectedTransactionIds, glNa
     class: "",
     item: "",
     item_description: "",
-    item_quantity: "1"
+    item_quantity: "1",
+    item_cost: "{txn.amount}",
+    item_amount: "{txn.amount}",
+    item_customer_job: "{txn.categoryData.name}"
   };
   const mappings = { ...defaultMappings, ...csvMappings };
   const rows = selectedTxns.map((txn) => {
@@ -13332,7 +13363,10 @@ const downloadQuickBooksCreditCard = (transactions, selectedTransactionIds, glNa
       processTemplate(mappings.class, txn, additionalVars, ledgerContext),
       processTemplate(mappings.item, txn, additionalVars, ledgerContext),
       processTemplate(mappings.item_description, txn, additionalVars, ledgerContext),
-      processTemplate(mappings.item_quantity, txn, additionalVars, ledgerContext)
+      processTemplate(mappings.item_quantity, txn, additionalVars, ledgerContext),
+      mappings.item_cost === "{txn.amount}" ? Math.abs(txn.amount).toString() : processTemplate(mappings.item_cost, txn, additionalVars, ledgerContext),
+      mappings.item_amount === "{txn.amount}" ? Math.abs(txn.amount).toString() : processTemplate(mappings.item_amount, txn, additionalVars, ledgerContext),
+      processTemplate(mappings.item_customer_job, txn, additionalVars, ledgerContext)
     ];
   });
   const csvContent = buildCSV(headers, rows);
@@ -14400,7 +14434,11 @@ function Settings() {
           { field: "Expense Billable", key: "expense_billable", default: "", description: "Billable status (optional)" },
           { field: "Class", key: "class", default: "", description: "QuickBooks class (optional)" },
           { field: "Item", key: "item", default: "", description: "Item/Product (optional)" },
-          { field: "Item Description", key: "item_description", default: "", description: "Item description (optional)" }
+          { field: "Item Description", key: "item_description", default: "", description: "Item description (optional)" },
+          { field: "Item Quantity", key: "item_quantity", default: "1", description: "Item quantity" },
+          { field: "Item Cost", key: "item_cost", default: "", description: "Item cost (optional)" },
+          { field: "Item Amount", key: "item_amount", default: "", description: "Item amount (optional)" },
+          { field: "Item Customer:Job", key: "item_customer_job", default: "", description: "Item customer/job (optional)" }
         ];
       default:
         return [];

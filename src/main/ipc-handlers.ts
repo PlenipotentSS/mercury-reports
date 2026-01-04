@@ -231,6 +231,33 @@ export function registerIpcHandlers(): void {
     }
   })
 
+  ipcMain.handle('mercury:fetchCreditAccounts', async (_event, apiKey: string) => {
+    try {
+      const url = 'https://api.mercury.com/api/v1/credit'
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch credit accounts: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      return { success: true, data }
+    } catch (error) {
+      log.error('Fetch credit accounts error:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch credit accounts'
+      }
+    }
+  })
+
   ipcMain.handle(
     'mercury:fetchTransactions',
     async (_event, apiKey: string, queryString?: string) => {

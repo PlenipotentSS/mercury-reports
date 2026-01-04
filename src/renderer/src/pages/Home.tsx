@@ -38,24 +38,31 @@ export default function Home() {
       // Fetch accounts for each company
       const accountsPromises = companiesResult.companies.map(async (company) => {
         try {
-          const accountsResult = await window.api.mercuryFetchAccounts(company.api_key)
+          // Fetch both regular accounts and credit accounts in parallel
+          const [accountsResult, creditAccountsResult] = await Promise.all([
+            window.api.mercuryFetchAccounts(company.api_key),
+            window.api.mercuryFetchCreditAccounts(company.api_key)
+          ])
 
           if (!accountsResult.success) {
             return {
               company,
               accounts: [],
+              creditAccounts: [],
               error: accountsResult.error || 'Failed to fetch accounts'
             }
           }
 
           return {
             company,
-            accounts: accountsResult.data.accounts || []
+            accounts: accountsResult.data.accounts || [],
+            creditAccounts: creditAccountsResult.success ? creditAccountsResult.data.accounts || [] : []
           }
         } catch (error) {
           return {
             company,
             accounts: [],
+            creditAccounts: [],
             error: error instanceof Error ? error.message : 'Failed to fetch accounts'
           }
         }
@@ -113,7 +120,7 @@ export default function Home() {
       <h2 className="page-title">Welcome, {user?.name}!</h2>
       <div className="page-content">
         <div className="accounts-overview">
-          {companyAccounts.map(({ company, accounts, error }) => (
+          {companyAccounts.map(({ company, accounts, creditAccounts, error }) => (
             <div key={company.id} className="company-accounts-section">
               <h3 className="company-section-title">{company.name}</h3>
 
@@ -121,7 +128,7 @@ export default function Home() {
                 <div className="error-message">
                   <p>Failed to load accounts: {error}</p>
                 </div>
-              ) : accounts.length === 0 ? (
+              ) : accounts.length === 0 && creditAccounts.length === 0 ? (
                 <p className="no-accounts-message">No accounts found for this company.</p>
               ) : (
                 <div className="accounts-grid">
@@ -151,6 +158,33 @@ export default function Home() {
                         </div>
                       </div>
                     </a>
+                  ))}
+                  {creditAccounts.filter(account => account.status !== "archived").map((account) => (
+                    <div key={account.id} className="account-card credit-account">
+                      <div className="account-card-header">
+                        <h4 className="account-nickname">Credit Cards</h4>
+                        <span className={`account-status status-${account.status.toLowerCase()}`}>
+                          {account.status}
+                        </span>
+                      </div>
+                      <div className="account-card-body">
+                        <div className="account-balance-row">
+                          <span className="balance-label">Available Balance:</span>
+                          <span className="balance-value available credit-balance">
+                            {formatCurrency(account.availableBalance)}
+                          </span>
+                        </div>
+                        <div className="account-balance-row">
+                          <span className="balance-label">Current Balance:</span>
+                          <span className="balance-value current credit-balance">
+                            {formatCurrency(account.currentBalance)}
+                          </span>
+                        </div>
+                        <div className="account-meta">
+                          <span className="account-kind">credit</span>
+                        </div>
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}

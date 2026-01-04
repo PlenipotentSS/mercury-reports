@@ -137,6 +137,7 @@ interface API {
     queryString?: string
   ) => Promise<{ success: boolean; data?: any; error?: string }>
   mercuryFetchAccounts: (apiKey: string) => Promise<{ success: boolean; data?: any; error?: string }>
+  mercuryFetchCreditAccounts: (apiKey: string) => Promise<{ success: boolean; data?: any; error?: string }>
 
   // Company Ledger Records
   companyLedgerSet: (

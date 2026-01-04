@@ -47,9 +47,18 @@ export interface Account {
   kind: string
 }
 
+export interface CreditAccount {
+  id: string
+  status: string
+  createdAt: string
+  availableBalance: number
+  currentBalance: number
+}
+
 export interface CompanyAccounts {
   company: Company
   accounts: Account[]
+  creditAccounts: CreditAccount[]
   error?: string
 }
 

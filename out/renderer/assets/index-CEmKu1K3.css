@@ -1079,6 +1079,15 @@ code {
   transform: translateY(-2px);
 }
 
+.account-card.credit-account {
+  border-color: #fc8181;
+  background: #fffafa;
+}
+
+.account-card.credit-account:hover {
+  box-shadow: 0 4px 16px rgba(252, 129, 129, 0.2);
+}
+
 .account-card-header {
   display: flex;
   justify-content: space-between;
@@ -1105,7 +1114,8 @@ code {
   letter-spacing: 0.5px;
 }
 
-.account-status.status-open {
+.account-status.status-open,
+.account-status.status-active {
   background-color: #c6f6d5;
   color: #22543d;
 }
@@ -1145,6 +1155,10 @@ code {
 
 .balance-value.current {
   color: #3182ce;
+}
+
+.balance-value.credit-balance {
+  color: #e53e3e;
 }
 
 .account-meta {

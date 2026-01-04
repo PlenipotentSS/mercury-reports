@@ -36,6 +36,8 @@ const api = {
     ipcRenderer.invoke('mercury:fetchTransactions', apiKey, queryString),
   mercuryFetchAccounts: (apiKey: string) =>
     ipcRenderer.invoke('mercury:fetchAccounts', apiKey),
+  mercuryFetchCreditAccounts: (apiKey: string) =>
+    ipcRenderer.invoke('mercury:fetchCreditAccounts', apiKey),
 
   // Company Ledger Records
   companyLedgerSet: (companyId: number, key: string, value: string) =>
